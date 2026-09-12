@@ -151,8 +151,37 @@ class StubJourney(unittest.TestCase):
         self.assertEqual(st.session_state["in_terms"], 60)
 
 
+def _patch_single_select_button_group():
+    """Teach AppTest to read a single-select ``st.segmented_control``.
+
+    AppTest models every button_group as multi-select: ``ButtonGroup.indices``
+    iterates the widget's value, so a single-select control, whose session
+    state holds a bare option rather than a list, raises ``TypeError: 'int'
+    object is not iterable`` on the next run. The app is fine in a browser;
+    only the test harness makes this assumption. Patch it to accept a scalar.
+    """
+    from streamlit.testing.v1.element_tree import ButtonGroup
+
+    original = ButtonGroup.indices
+
+    @property
+    def indices(self):
+        value = self.value
+        if value is None:
+            return []
+        if not isinstance(value, (list, tuple, set)):
+            value = [value]
+        return [self.options.index(self.format_func(v)) for v in value]
+
+    ButtonGroup.indices = indices
+    return lambda: setattr(ButtonGroup, "indices", original)
+
+
 @unittest.skipUnless(HAVE_STREAMLIT, "requires streamlit")
 class RealStreamlitJourney(unittest.TestCase):  # pragma: no cover - runs where streamlit exists
+    def setUp(self):
+        self.addCleanup(_patch_single_select_button_group())
+
     def test_journey(self):
         at = AppTest.from_file(APP, default_timeout=30).run()
         self.assertFalse(at.exception)
