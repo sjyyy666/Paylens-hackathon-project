@@ -164,8 +164,32 @@ def train_logistic_regression(train: pd.DataFrame, artifact_path: str | Path) ->
     pipeline.fit(train[MODEL_FEATURES], labels)
     artifact = Path(artifact_path)
     artifact.parent.mkdir(parents=True, exist_ok=True)
-    dump({"model": pipeline, "features": MODEL_FEATURES, "threshold": TARGET_THRESHOLD}, artifact)
+    dump({
+        "model": pipeline,
+        "features": MODEL_FEATURES,
+        "threshold": TARGET_THRESHOLD,
+        "model_name": "logistic-regression-v1",
+    }, artifact)
     return {"artifact": str(artifact), "features": MODEL_FEATURES, "threshold": TARGET_THRESHOLD}
+
+
+def evaluate_model(model: Any, frame: pd.DataFrame) -> dict[str, Any]:
+    """Report temporal metrics without changing the trained model."""
+    from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
+
+    labels = frame[TARGET_COLUMN].astype(int)
+    probabilities = model.predict_proba(frame[MODEL_FEATURES])[:, 1]
+    predictions = (probabilities >= 0.5).astype(int)
+    return {
+        "rows": int(len(frame)),
+        "positive_count": int(labels.sum()),
+        "negative_count": int((labels == 0).sum()),
+        "classification_threshold": 0.5,
+        "roc_auc": float(roc_auc_score(labels, probabilities)) if labels.nunique() == 2 else None,
+        "f1": float(f1_score(labels, predictions, zero_division=0)),
+        "precision": float(precision_score(labels, predictions, zero_division=0)),
+        "recall": float(recall_score(labels, predictions, zero_division=0)),
+    }
 
 
 def run(input_path: str | Path, output_path: str | Path, artifact_path: str | Path | None = None) -> dict[str, Any]:
@@ -182,10 +206,16 @@ def run(input_path: str | Path, output_path: str | Path, artifact_path: str | Pa
         "target": TARGET_COLUMN,
         "target_definition": f"next_period_pct_paid_over_60 >= {TARGET_THRESHOLD}",
         "periods": {name: sorted(str(x) for x in part["reporting_period"].unique()) for name, part in splits.items()},
-        "class_balance": {name: part[TARGET_COLUMN].value_counts(dropna=False).astype(int).to_dict() for name, part in splits.items()},
+        "class_balance": {
+            name: {str(label): int(count) for label, count in part[TARGET_COLUMN].value_counts(dropna=False).items()}
+            for name, part in splits.items()
+        },
     }
     if artifact_path is not None:
         metadata["model"] = train_logistic_regression(splits["train"], artifact_path)
+        from joblib import load
+        model = load(artifact_path)["model"]
+        metadata["metrics"] = {name: evaluate_model(model, part) for name, part in splits.items()}
     return metadata
 
 
