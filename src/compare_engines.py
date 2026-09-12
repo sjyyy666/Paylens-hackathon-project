@@ -1,3 +1,8 @@
+from pprint import pprint
+
+from src import risk_engine
+from src import contract_adapter
+
 TEST_CASES = [
     {
         "name": "Low delay risk",
@@ -45,3 +50,35 @@ TEST_CASES = [
         "payment_terms_days": 30,
     },
 ]
+
+def extract_result(result):
+    return {
+        "score": result.get("score"),
+        "level": result.get("level"),
+        "methodology_version": result.get("methodology_version"),
+    }
+
+
+for case in TEST_CASES:
+    print("\n" + "=" * 60)
+    print(case["name"])
+
+    params = {
+        "payment_probability": case["payment_delay_probability"],
+        "contract_value": case["contract_value"],
+        "cash_reserve": case["cash_reserve"],
+        "monthly_cost": case["monthly_cost"],
+        "upfront_pct": case["upfront_pct"],
+        "payment_terms_days": case["payment_terms_days"],
+    }
+
+    print("\nOld engine:")
+    old_result = risk_engine.analyse_contract(**params)
+    pprint(extract_result(old_result))
+
+    print("\nNew engine:")
+    new_result = contract_adapter.analyse_contract(**params)
+    pprint(extract_result(new_result))
+
+    print("\nScore difference:")
+    print(new_result["score"] - old_result["score"])
