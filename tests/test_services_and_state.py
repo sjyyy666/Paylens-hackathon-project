@@ -8,6 +8,21 @@ from src.risk_engine import analyse_contract, suggest_structure
 
 
 class MockServices(unittest.TestCase):
+    """Behaviour of the demo-fixture backend, reached through the facade.
+
+    The facade defaults to the real-data backend, so pin it to the mocks here.
+    """
+
+    def setUp(self):
+        self._backend = services._backend
+        self._is_mock = services.IS_MOCK
+        services._backend = mock_services
+        services.IS_MOCK = True
+
+    def tearDown(self):
+        services._backend = self._backend
+        services.IS_MOCK = self._is_mock
+
     def test_search_filters_and_ranks(self):
         names = [c["name"] for c in services.search_company("demo")]
         self.assertTrue(names)

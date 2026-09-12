@@ -234,6 +234,14 @@ def calculate_customer_risk_score(payment_delay_probability: float) -> float:
     return payment_delay_probability * 100
 
 
+WEIGHTS = {
+    "customer": 0.20,
+    "cash_exposure": 0.40,
+    "waiting_period": 0.20,
+    "upfront": 0.20,
+}
+
+
 def calculate_contract_risk_score(
     payment_delay_probability: float,
     metrics: Dict[str, float],
@@ -242,11 +250,10 @@ def calculate_contract_risk_score(
     """
     Calculate the weighted overall contract risk score.
 
-    Weights:
-        Customer payment risk: 30%
-        Cash exposure:        30%
-        Waiting-period risk:   20%
-        Upfront protection:    20%
+    Weights live in WEIGHTS. The customer term is held at 20% -- the ML
+    probability is the noisiest input, and at 30% a single model swing moved
+    most deals a whole level. The freed 10% goes to cash exposure, which is
+    measured from the numbers the user typed.
     """
     customer_risk_score = calculate_customer_risk_score(
         payment_delay_probability
@@ -264,10 +271,10 @@ def calculate_contract_risk_score(
     upfront_risk_score = calculate_upfront_risk_score(upfront_pct)
 
     risk_score = (
-        customer_risk_score * 0.30
-        + cash_exposure_score * 0.30
-        + waiting_period_score * 0.20
-        + upfront_risk_score * 0.20
+        customer_risk_score * WEIGHTS["customer"]
+        + cash_exposure_score * WEIGHTS["cash_exposure"]
+        + waiting_period_score * WEIGHTS["waiting_period"]
+        + upfront_risk_score * WEIGHTS["upfront"]
     )
 
     risk_score = round(max(0.0, min(risk_score, 100.0)), 2)

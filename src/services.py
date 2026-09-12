@@ -18,11 +18,15 @@ import logging
 import os
 from typing import Optional
 
+from src import contract_adapter
 from src import risk_engine
 
 log = logging.getLogger("paylens.services")
 
-_BACKEND_NAME = os.environ.get("PAYLENS_BACKEND", "src.mock_services")
+# Real company data (preprocess/company_history.csv + the trained model) is the
+# default; PAYLENS_BACKEND=src.mock_services forces the demo fixtures, and the
+# import guard below falls back to them if the real backend cannot load.
+_BACKEND_NAME = os.environ.get("PAYLENS_BACKEND", "src.real_services")
 try:
     _backend = importlib.import_module(_BACKEND_NAME)
 except Exception:  # pragma: no cover - defensive
@@ -117,7 +121,8 @@ def _level_from_p(p: float) -> str:
     return "LOW" if p < 0.30 else "MODERATE" if p < 0.55 else "HIGH" if p < 0.80 else "CRITICAL"
 
 
-# Contract exposure is deterministic and lives in risk_engine; re-exported so
+# Contract exposure is deterministic; the contract engine is reached through
+# contract_adapter (UI-shaped output). Re-exported so
 # the UI has a single import surface.
-analyse_contract = risk_engine.analyse_contract
+analyse_contract = contract_adapter.analyse_contract
 find_min_upfront = risk_engine.find_min_upfront

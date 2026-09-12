@@ -655,7 +655,7 @@ def methodology_table(config) -> str:
         <span>{badge("LOW", True)} 0–30</span><span>{badge("MODERATE", True)} 31–55</span>
         <span>{badge("HIGH", True)} 56–75</span><span>{badge("CRITICAL", True)} 76–100</span>
       </div>
-      <div class="pl-small">Every weight lives in <code>src/risk_engine.py → ScoringConfig</code>. Customer data
+      <div class="pl-small">Every weight lives in <code>src/contract_risk_engine.py → WEIGHTS</code>. Customer data
       and the delay model are served through <code>src/services.py</code> and can be replaced without changing the interface.</div>
     </div>""")
 

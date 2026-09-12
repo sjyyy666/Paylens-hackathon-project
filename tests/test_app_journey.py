@@ -181,6 +181,17 @@ def _patch_single_select_button_group():
 class RealStreamlitJourney(unittest.TestCase):  # pragma: no cover - runs where streamlit exists
     def setUp(self):
         self.addCleanup(_patch_single_select_button_group())
+        # The facade defaults to the real-data backend; the journey drives the
+        # demo companies, so pin it to the fixtures.
+        from src import mock_services, services
+
+        backend, is_mock = services._backend, services.IS_MOCK
+        services._backend, services.IS_MOCK = mock_services, True
+
+        def restore():
+            services._backend, services.IS_MOCK = backend, is_mock
+
+        self.addCleanup(restore)
 
     def test_journey(self):
         at = AppTest.from_file(APP, default_timeout=30).run()

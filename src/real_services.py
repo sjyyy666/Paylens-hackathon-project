@@ -2,7 +2,8 @@
 
 This backend consumes the data owner's canonical
 ``preprocess/company_history.csv`` and preserves the service shapes already
-consumed by the UI. It is opt-in: set ``PAYLENS_BACKEND=src.real_services``.
+consumed by the UI. This is the default backend; set
+``PAYLENS_BACKEND=src.mock_services`` to run on the demo fixtures instead.
 
 The history file is used rather than ``training_data.csv`` because it keeps
 every reported period per company, including the most recent one, which the
