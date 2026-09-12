@@ -1,500 +1,414 @@
-Payment Times Data — Preprocessing
+# Payment Times Data — Preprocessing and Training Data
 
-This folder contains the preprocessing pipeline for the Australian Government Payment Times Reports Register data used by the hackathon.
+This folder contains the preprocessing and training-data pipeline for the Australian Government Payment Times Reports Register data used by PayLens.
 
-What this module does
+The pipeline converts the original government Excel workbook into cleaned, analysis-ready data and then builds a structured training dataset for development of the PayLens payment-delay risk model.
 
-The preprocessing pipeline converts the original government Excel workbook into a cleaner, analysis-ready Excel workbook without throwing away potentially useful information.
+## What This Module Does
 
-Main steps:
+The preprocessing pipeline converts the original government Excel workbook into a cleaner, analysis-ready workbook without throwing away potentially useful information.
 
-Read the original workbook.
+The main preprocessing steps are:
 
-Keep the relevant government report sheets.
+* Read the original government workbook.
+* Keep the relevant government report sheets.
+* Convert long government column descriptions into stable `snake_case` column names.
+* Remove Excel index columns and completely empty rows.
+* Remove the repeated column-name row contained in the source workbook.
+* Standardise ABNs as strings so identifiers are not accidentally converted to numbers.
+* Parse known date fields consistently.
+* Remove exact duplicate rows only.
+* Keep different reporting periods and revised/historical reports.
+* Add entity and reporting-period keys for downstream analysis.
+* Create derived views, particularly `standard_latest` and `historical_for_analysis`.
+* Create `data_dictionary` and `cleaning_summary` sheets.
+* Build a separate training dataset for development of the payment-delay risk model.
 
-Convert long government column descriptions into stable snake_case column names.
+## Files
 
-Remove Excel index columns and completely empty rows.
-
-Remove the repeated column-name row contained in the source workbook.
-
-Standardise ABNs as strings so identifiers are not accidentally converted to numbers.
-
-Parse known date fields consistently.
-
-Remove exact duplicate rows only.
-
-Keep different reporting periods and revised/historical reports.
-
-Add entity/reporting-period keys for downstream analysis.
-
-Create derived views for the hackathon, especially standard_latest and historical_for_analysis.
-
-Create data_dictionary and cleaning_summary sheets.
-
-Files
-
+```text
 preprocessing/
 ├── data_process.py
+├── build_training_data.py
 ├── clean.xlsx
+├── training_data.xlsx
 └── README.md
+```
 
-raw.xlsx is the original government dataset and should normally stay outside the Git repository if it is too large. The raw source is never modified by the script.
+### `data_process.py`
 
-How to run
+Cleans and restructures the original Australian Government Payment Times dataset.
 
-From this folder:
+### `clean.xlsx`
 
+The cleaned, analysis-ready workbook produced by `data_process.py`.
+
+It preserves the relevant source information while also providing derived views for easier company and historical analysis.
+
+### `build_training_data.py`
+
+Uses the cleaned payment data to construct the dataset used for development of the PayLens payment-delay risk model.
+
+### `training_data.xlsx`
+
+The model-development dataset generated from the cleaned payment data.
+
+It is kept separate from the larger cleaned workbook so model development can use a structured dataset while the complete cleaned data remains available for company lookup, historical analysis and other PayLens functionality.
+
+The original `raw.xlsx` government dataset should normally remain outside the Git repository if it is too large. The raw source is never modified by the preprocessing script.
+
+## How to Run
+
+The data pipeline has two main stages.
+
+### Step 1 — Preprocess the Government Data
+
+Run:
+
+```bash
 python data_process.py raw.xlsx clean.xlsx
+```
 
-If the raw file is stored elsewhere, use its path:
+If the raw file is stored elsewhere, provide its path:
 
-python data_process.py "C:\path\to\raw.xlsx" clean.xlsx
+```bash
+python data_process.py "path/to/raw.xlsx" clean.xlsx
+```
 
-The script prints progress while processing and finishes with the exact output path and a list of sheets created.
+The script prints progress while processing and finishes with the output path and the sheets created.
 
-Dataset structure
+### Step 2 — Build the Training Data
 
-The cleaned workbook contains source sheets plus derived analysis sheets.
+Run the training-data script to generate the model-development dataset:
 
-1. Standard report
+```bash
+python build_training_data.py
+```
 
-What it contains
+This uses the cleaned payment data to produce `training_data.xlsx`.
 
-Current/standard payment-time reporting information for reporting entities, including:
+Keeping these stages separate means the complete government dataset does not need to be cleaned again every time the model-development dataset is changed.
 
-Business identity (entity_name, abn, acn_arbn)
+## Data Pipeline
 
-Report type and reporting period
+The overall PayLens data pipeline is:
 
-Common payment terms
+```text
+Australian Government Payment Times Data
+                    ↓
+             data_process.py
+                    ↓
+               clean.xlsx
+                    ↓
+        build_training_data.py
+                    ↓
+           training_data.xlsx
+                    ↓
+       Payment-delay risk model
+                    ↓
+                 PayLens
+```
 
-Average and median payment time
+`clean.xlsx` and `training_data.xlsx` have different purposes.
 
-80th and 95th percentile payment time
+`clean.xlsx` is the broader analysis-ready source used for:
 
-Percentage of invoices paid within 30 days, 31–60 days, and over 60 days
+* Company identification
+* Current payment behaviour
+* Historical payment behaviour
+* Payment trends
+* Industry comparison
+* Supporting reporting information
 
-Percentage paid within the payment term
+`training_data.xlsx` is specifically structured for development of the payment-delay risk model.
 
-Supply-chain-finance information
+## Cleaned Dataset Structure
 
-Procurement-fee information
+The cleaned workbook contains the original relevant source sheets as well as derived analysis sheets.
 
-Industry information
+### 1. Standard Report
 
-Report comments and changes
+The Standard report contains current payment-time reporting information for reporting entities, including:
 
-Why it matters
+* Business identity (`entity_name`, `abn`, `acn_arbn`)
+* Report type and reporting period
+* Common payment terms
+* Average and median payment time
+* 80th and 95th percentile payment time
+* Percentage of invoices paid within 30 days
+* Percentage paid within 31–60 days
+* Percentage paid after 60 days
+* Percentage paid within the payment term
+* Supply-chain-finance information
+* Procurement-fee information
+* Industry information
+* Report comments and changes
 
-This is the main source for the company's current observed payment behaviour.
+This is one of the main sources for understanding a company's current observed payment behaviour.
 
-For the hackathon's payment-risk MVP, this is one of the most important sheets.
+### 2. `standard_latest`
 
-2. standard_latest
+`standard_latest` is a derived table containing the latest usable Standard report for each ABN.
 
-What it contains
+The original Standard report sheet is preserved. This sheet is a convenient analysis view rather than a replacement for the source data.
 
-A derived table containing the latest usable Standard report for each ABN.
+A typical PayLens workflow is:
 
-The original Standard report sheet is preserved; this sheet is only a convenient analysis view.
-
-Why it matters
-
-This should normally be the first sheet used for a current company risk assessment.
-
-Example workflow:
-
+```text
 Company name / ABN
         ↓
 Find company in standard_latest
         ↓
 Read latest payment behaviour
         ↓
-Use historical_for_analysis for trend
+Use historical_for_analysis
+        ↓
+Analyse payment trend
         ↓
 Compare with industry
         ↓
-Calculate payment risk
+Assess payment-delay risk
+```
 
-Important: repeated ABNs in the original data are not automatically duplicates. Different reporting periods and revised reports can be meaningful.
+Repeated ABNs in the original data should not automatically be treated as duplicates. Different reporting periods and revised reports can contain meaningful information.
 
-3. Historical Reports
+### 3. Historical Reports
 
-What it contains
+The Historical Reports sheet contains payment reporting information across different reporting periods.
 
-Historical payment reporting information across reporting periods, including:
+This includes:
 
-Standard payment terms
+* Standard payment terms
+* Changes to standard terms
+* Shortest and longest standard terms
+* Invoice-count payment-time distributions
+* Invoice-value payment-time distributions
+* Invoice and payment practices
+* Procurement fees
+* Supply-chain-finance information
+* Small-business procurement percentages
+* Business-name and reporting changes
+* Historical report and revision information
+* Industry information
 
-Changes to standard terms
+This data allows PayLens to examine how a company's payment behaviour has changed over time.
 
-Shortest and longest standard terms
+For example, a company whose payment time has recently increased may present a different payment-delay pattern from a company whose payment behaviour has remained stable.
 
-Invoice-count payment-time distributions
+### 4. `historical_for_analysis`
 
-Invoice-value payment-time distributions
+`historical_for_analysis` is a derived analysis view of the Historical Reports data, ordered by entity and reporting period.
 
-Invoice/payment practices
+It is designed to make it easier to construct historical features such as:
 
-Procurement fees
+* Payment-time trend
+* Improving or worsening payment behaviour
+* Stability and volatility
+* Changes in payment terms
+* Changes in late-payment proportions
 
-Supply chain finance
+The original Historical Reports sheet remains available when the complete source information is required.
 
-Small-business procurement percentages
+### 5. Records of Non-compliance
 
-Business-name and reporting changes
+This sheet contains records relating to reported non-compliance, including the entity, ABN, type of non-compliance and related reporting information.
 
-Historical report/revision information
+This may provide an additional regulatory signal.
 
-Industry information
+However, non-compliance should not automatically determine a company's payment-delay risk by itself. It should be treated as supporting evidence.
 
-Why it matters
+### 6. External Administration Report
 
-Use this sheet to understand how payment behaviour has changed over time.
+This contains information about external administration appointments associated with reporting entities, including appointment type, administrator firm and appointment date.
 
-A company that recently moved from 25 days to 45 days may be more concerning than a company that has consistently paid around 45 days.
+This may provide additional context or a potential financial-distress signal.
 
-4. historical_for_analysis
+It is not required to be a primary feature of the PayLens payment-delay risk assessment.
 
-What it contains
+### 7. Has Nominee Report
 
-A derived analysis view of Historical Reports, sorted by entity and reporting period.
+This contains information about reporting nominees, including nominee names and identifying information.
 
-Why it matters
+This is primarily structural and reporting information rather than a core payment-delay risk feature.
 
-This is the convenient table to use when building historical features such as:
+### 8. AASB8 Report
 
-Payment-time trend
+This contains supplementary reporting information associated with AASB 8, including payment metrics and operating-segment information where available.
 
-Improving vs worsening behaviour
+It may support more detailed analysis of complex organisations but is not required for the first PayLens MVP.
 
-Stability/volatility
+### 9. No SB Procurement Report
 
-Changes in payment terms
+This contains reports associated with entities that do not have the relevant small-business procurement reporting activity.
 
-Changes in late-payment proportions
+This is mainly a context and data-availability signal.
 
-The original Historical Reports remains available when full detail is required.
+It should not automatically be interpreted as evidence of high payment-delay risk.
 
-5. Records of Non-compliance
+### 10. Applications
 
-What it contains
+This contains accepted applications associated with reporting obligations, including extensions, modified reporting arrangements, volunteering or subsidiary entities, nominees and exempt entities where applicable.
 
-Records relating to reported non-compliance, including the entity, ABN, type of non-compliance and related reporting information.
+This information may help explain reporting status and exceptions but is secondary to actual payment behaviour for the MVP.
 
-Why it matters
+### 11. Notices
 
-This can be used as an additional regulatory risk signal.
+This contains accepted regulatory notices relating to reporting entities.
 
-It should not automatically determine the payment-risk score by itself. It is better treated as supporting evidence.
+These may provide additional context but should be interpreted alongside actual payment behaviour.
 
-6. External Administration report
+### 12. `data_dictionary`
 
-What it contains
+The `data_dictionary` sheet provides a machine-readable summary of the columns contained in the cleaned and derived sheets.
 
-Information about external administration appointments associated with reporting entities, including appointment type, administrator firm and appointment date.
+It includes:
 
-Why it matters
+* Sheet name
+* Column name
+* Data type
+* Non-null count
+* Null percentage
+* Number of unique values
 
-External administration can be a potentially important financial-distress signal.
+This helps developers and AI systems understand what information is actually available without guessing the dataset structure.
 
-For the MVP, it can be an optional high-risk flag rather than a primary feature.
+### 13. `cleaning_summary`
 
-7. Has Nominee report
+The `cleaning_summary` provides a data-quality and preprocessing audit trail.
 
-What it contains
+For each source sheet, it records information such as:
 
-Information about reporting nominees, including nominee name and identifying information.
+* Number of rows before cleaning
+* Number of rows after cleaning
+* Number of empty rows removed
+* Number of exact duplicate rows removed
 
-Why it matters
+## Training Dataset
 
-This is mainly structural/reporting information. It may help explain how a reporting entity is represented in the reporting scheme, but it is not a core payment-risk feature.
+`training_data.xlsx` is derived from the cleaned Australian Government Payment Times data and is intended for development of the PayLens payment-delay risk model.
 
-8. AASB8 report
+It is kept separate from `clean.xlsx`.
 
-What it contains
+The cleaned workbook remains the broader source for customer search, current payment information and historical analysis, while the training dataset provides a structured input for model development and evaluation.
 
-Additional reporting information associated with AASB 8, including payment metrics and operating-segment-related information where available.
+The creation of a training dataset does **not** mean that the underlying government data contains a direct default or bankruptcy label.
 
-Why it matters
+The model should therefore be developed and described as estimating **payment-delay risk based on observed payment behaviour**, rather than predicting bankruptcy, insolvency or credit default.
 
-This is supplementary information that may help with more detailed analysis of complex businesses or business segments.
+## Key Payment-Risk Features
 
-It is not required for the first payment-risk MVP.
+Some of the most useful current-period variables available in the cleaned data include:
 
-9. No SB procurement report
+| Column                         | Meaning                                         | Potential Risk Use                      |
+| ------------------------------ | ----------------------------------------------- | --------------------------------------- |
+| `avg_payment_time_days`        | Average number of days taken to pay             | Core payment-speed signal               |
+| `median_payment_time_days`     | Median payment time                             | Typical payment behaviour               |
+| `p80_payment_time_days`        | Payment time by which 80% of payments were made | Captures slower payment tail            |
+| `p95_payment_time_days`        | Payment time by which 95% of payments were made | Captures extreme late-payment behaviour |
+| `pct_invoices_0_30_days`       | Percentage paid within 30 days                  | Payment-speed signal                    |
+| `pct_invoices_31_60_days`      | Percentage paid within 31–60 days               | Delayed-payment signal                  |
+| `pct_invoices_60_plus_days`    | Percentage paid after 60 days                   | Strong late-payment signal              |
+| `pct_paid_within_payment_term` | Percentage paid within the stated payment term  | Payment-performance signal              |
+| `common_payment_term_days`     | Most common payment term                        | Contractual timing context              |
+| `standard_vs_common_term`      | Relationship between standard and common terms  | Payment-terms context                   |
+| `industry_division`            | Main industry                                   | Industry benchmarking                   |
+| `period_end`                   | End of reporting period                         | Recency and trend analysis              |
 
-What it contains
+Historical variables can also be used to construct trend and stability features.
 
-Reports associated with entities that do not have the relevant small-business procurement reporting activity.
+## Important Interpretation Rules
 
-Why it matters
+### 1. ABN Is the Main Entity Identifier
 
-This is mainly a context/data-availability signal. It should not be interpreted automatically as high payment risk.
+Use `abn` or `entity_key` to identify a company across reports whenever possible.
 
-10. Applications
+Company names can change, so company name alone should not be used as the entity key when an ABN is available.
 
-What it contains
+### 2. Do Not Treat Repeated ABNs as Duplicates
 
-Accepted applications associated with reporting obligations, including extensions, modified reporting arrangements, volunteering/subsidiary entities, nominees and exempt entities where applicable.
+The same ABN may legitimately appear in multiple reporting periods or revised reports.
 
-Why it matters
+Only exact duplicate rows should be automatically removed.
 
-Useful for understanding reporting status and exceptions. It is secondary to actual payment behaviour for the MVP.
-
-11. Notices
-
-What it contains
-
-Accepted regulatory notices relating to reporting entities.
-
-Why it matters
-
-Potentially useful as additional context or regulatory signals. It should be interpreted together with the actual payment data.
-
-12. data_dictionary
-
-What it contains
-
-A machine-readable summary of every column in every cleaned/derived sheet, including:
-
-Sheet name
-
-Column name
-
-Data type
-
-Non-null count
-
-Null percentage
-
-Number of unique values
-
-Why it matters
-
-This is especially useful when giving the dataset to another AI model. The AI can use this sheet to understand the available variables instead of guessing what a column means.
-
-13. cleaning_summary
-
-What it contains
-
-For each source sheet:
-
-Number of rows before cleaning
-
-Number of rows after cleaning
-
-Number of empty/exact-duplicate rows removed
-
-Why it matters
-
-This provides a quick data-quality/audit trail for the preprocessing step.
-
-Key risk features
-
-For the payment-risk MVP, the most useful current-period variables are:
-
-Column
-
-Meaning
-
-Risk use
-
-avg_payment_time_days
-
-Average number of days taken to pay
-
-Core payment-speed signal
-
-median_payment_time_days
-
-Median payment time
-
-Typical payment behaviour
-
-p80_payment_time_days
-
-Payment time by which 80% of payments were made
-
-Captures slower tail
-
-p95_payment_time_days
-
-Payment time by which 95% of payments were made
-
-Captures extreme late-payment behaviour
-
-pct_invoices_0_30_days
-
-% paid within 30 days
-
-Positive/negative payment-speed signal
-
-pct_invoices_31_60_days
-
-% paid in 31–60 days
-
-Delayed-payment signal
-
-pct_invoices_60_plus_days
-
-% paid after 60 days
-
-Strong late-payment signal
-
-pct_paid_within_payment_term
-
-% paid within the stated payment term
-
-Contract-performance signal
-
-common_payment_term_days
-
-Most common payment term
-
-Expected contractual timing
-
-standard_vs_common_term
-
-Whether standard/default terms are longer or shorter than common terms
-
-Terms context
-
-industry_division
-
-Main industry
-
-Industry benchmarking
-
-period_end
-
-End of reporting period
-
-Recency/trend
-
-Historical variables can then be used to build trend and stability features.
-
-Important interpretation rules
-
-1. ABN is the main entity identifier
-
-Use abn / entity_key to identify a company across reports whenever possible.
-
-Company names can change. Do not use company name alone as the entity key when an ABN is available.
-
-2. Do not treat repeated ABNs as duplicates
-
-The same ABN can legitimately appear in multiple reporting periods or in revised reports.
-
-Only exact duplicate rows should be removed automatically.
-
-3. standard_latest is a derived convenience table
-
-It is not a replacement for the historical data.
+### 3. `standard_latest` Does Not Replace Historical Data
 
 Use:
 
-standard_latest → current risk assessment
+```text
+standard_latest
+→ latest/current payment assessment
 
-historical_for_analysis → trend/history
+historical_for_analysis
+→ payment behaviour over time
 
-Standard report / Historical Reports → full source detail
+Standard Report / Historical Reports
+→ full source information
+```
 
-4. This dataset is NOT a default-prediction dataset
+### 4. This Is Not a Default-Prediction Dataset
 
-The data records observed payment behaviour. It does not provide a direct target variable saying that a company defaulted on a contract.
+The Australian Government Payment Times data records observed payment behaviour.
 
-Therefore, do not make unsupported claims such as:
+It does not provide a direct target variable showing that a company defaulted on a contract.
 
-"This company has a 73% probability of default."
+PayLens should therefore not make unsupported statements such as:
 
-Unless the team later builds a properly labelled model, the product should be described as an:
+> "This company has a 73% probability of default."
 
-AI Payment Risk Assessment based on observed payment behaviour
+The product instead focuses on **payment-delay risk** and the potential cash-flow exposure created for a small-business supplier.
 
-rather than a credit-default prediction model.
+## Recommended PayLens Analysis Workflow
 
-Recommended AI analysis workflow
+For a prospective customer:
 
-When an AI model is given a prospective customer's information, use this order:
+1. Identify the entity using ABN where possible.
+2. Retrieve the latest record from `standard_latest`.
+3. Examine average and median payment times.
+4. Examine P80 and P95 payment times.
+5. Examine the proportions paid within 30 days, 31–60 days and after 60 days.
+6. Compare actual payment behaviour with the stated or common payment term.
+7. Compare the company with its industry where an appropriate benchmark is available.
+8. Use `historical_for_analysis` to determine whether payment behaviour is improving, worsening or stable.
+9. Optionally examine supporting regulatory information.
+10. Combine the available evidence into an explainable payment-delay risk assessment.
+11. Combine this customer assessment with the small business's proposed contract to calculate contract-specific exposure.
+12. Recommend practical changes to the contract structure where supported by the calculations.
 
-Identify the entity using ABN where possible.
+## Role in PayLens
 
-Retrieve the latest record from standard_latest.
+This preprocessing module forms the data foundation of PayLens.
 
-Examine average, median, P80 and P95 payment times.
+```text
+Government Payment Data
+        ↓
+Data Cleaning
+        ↓
+Historical + Current Analysis
+        ↓
+Training Data
+        ↓
+Payment-Delay Risk
+        ↓
+Contract Exposure
+        ↓
+Deal Restructuring
+        ↓
+PayLens Recommendation
+```
 
-Examine the proportions paid within 30 days, 31–60 days and over 60 days.
+The preprocessing layer should remain separate from the website and model logic so changes to the source data do not require redesigning the PayLens user interface.
 
-Compare actual payment behaviour with the stated/common payment term.
+## Product Boundaries
 
-Compare the company with its industry where an appropriate benchmark is available.
+PayLens uses historical payment behaviour as evidence for payment-delay risk.
 
-Use historical_for_analysis to determine whether payment behaviour is improving, worsening or stable.
+The dataset does **not** directly support claims about:
 
-Optionally check non-compliance and external-administration information for additional signals.
+* Probability of bankruptcy
+* Probability of insolvency
+* Probability of credit default
+* Exact future payment dates
+* Whether a specific invoice will definitely be late
+* Whether a particular contract will definitely be paid
 
-Combine the evidence into an explainable risk assessment.
-
-Recommend practical contract/payment safeguards for the small business supplier.
-
-AI prompt template
-
-The following context can be given to another AI together with the relevant rows from the cleaned dataset:
-
-You are analysing the Australian Government Payment Times Reports Register dataset.
-
-This dataset describes large businesses' observed payment practices to small business suppliers.
-
-Important rules:
-- Use ABN as the primary entity identifier where available.
-- Do not treat repeated ABNs as duplicates; different reporting periods and revised reports can contain meaningful information.
-- Use standard_latest for the latest current Standard report.
-- Use historical_for_analysis for payment-behaviour trends.
-- Use the data_dictionary to understand column definitions.
-- The dataset does NOT contain a direct credit-default label.
-- Do not claim that the data gives a probability of default unless a separate, properly labelled model has been built.
-- Assess payment risk from observed payment behaviour and supporting signals.
-- Distinguish facts directly supported by the dataset from inference.
-
-For the selected company, analyse:
-1. Average payment time
-2. Median payment time
-3. P80 payment time
-4. P95 payment time
-5. Percentage paid within 30 days
-6. Percentage paid in 31–60 days
-7. Percentage paid after 60 days
-8. Percentage paid within the payment term
-9. Common payment term
-10. Historical trend
-11. Industry comparison
-12. Optional regulatory/distress signals
-
-Return:
-- Overall payment-risk level: Low / Medium / High
-- Key evidence
-- Positive signals
-- Risk signals
-- Historical trend
-- Industry comparison
-- Recommended payment terms or safeguards for a small-business supplier
-
-Do not invent missing data. If a field is unavailable, say so explicitly.
-
-Recommended role of this folder in the main repository
-
-The main repository can treat this as a self-contained preprocessing module:
-
-project-root/
-├── preprocessing/
-│   ├── data_process.py
-│   ├── clean.xlsx
-│   └── README.md
-├── backend/
-├── frontend/
-├── ...
-└── README.md
-
-The root README should explain the whole hackathon product. This README should explain only the data/preprocessing component.
+PayLens is designed as a **pre-contract decision-support tool for small businesses**, not a validated commercial credit-rating system.
