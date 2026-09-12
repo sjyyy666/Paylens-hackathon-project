@@ -21,7 +21,7 @@ from typing import Any, Dict, List
 
 
 def _validate_inputs(
-    payment_probability: float,
+    payment_delay_probability: float,
     contract_value: float,
     cash_reserve: float,
     monthly_cost: float,
@@ -30,8 +30,8 @@ def _validate_inputs(
     payment_terms_days: int,
 ) -> None:
     """Validate all contract-model inputs."""
-    if not 0 <= payment_probability <= 1:
-        raise ValueError("payment_probability must be between 0 and 1.")
+    if not 0 <= payment_delay_probability <= 1:
+        raise ValueError("payment_delay_probability must be between 0 and 1.")
 
     if contract_value < 0:
         raise ValueError("contract_value cannot be negative.")
@@ -223,19 +223,19 @@ def calculate_upfront_risk_score(upfront_pct: float) -> float:
     return (1 - upfront_pct) * 100
 
 
-def calculate_customer_risk_score(payment_probability: float) -> float:
+def calculate_customer_risk_score(payment_delay_probability: float) -> float:
     """
-    Convert the ML model's on-time payment probability into risk.
+    Convert the ML model's high payment-delay probability into risk.
 
     Example:
-        payment_probability = 0.80
-        customer_risk_score = 20
+        payment_delay_probability = 0.80
+        customer_risk_score = 80
     """
-    return (1 - payment_probability) * 100
+    return payment_delay_probability * 100
 
 
 def calculate_contract_risk_score(
-    payment_probability: float,
+    payment_delay_probability: float,
     metrics: Dict[str, float],
     upfront_pct: float,
 ) -> Dict[str, Any]:
@@ -249,7 +249,7 @@ def calculate_contract_risk_score(
         Upfront protection:    20%
     """
     customer_risk_score = calculate_customer_risk_score(
-        payment_probability
+        payment_delay_probability
     )
 
     cash_exposure_score = calculate_cash_exposure_score(
@@ -323,7 +323,7 @@ def calculate_recommended_upfront_pct(
 
 
 def generate_contract_recommendations(
-    payment_probability: float,
+    payment_delay_probability: float,
     contract_value: float,
     cash_reserve: float,
     monthly_cost: float,
@@ -391,11 +391,11 @@ def generate_contract_recommendations(
             "at each delivery milestone."
         )
 
-    if payment_probability < 0.50:
+    if payment_delay_probability >= 0.50:
         recommendations.append(
-            "The customer has a relatively low estimated probability of paying "
-            "on time. Consider stronger payment protections, credit checks, "
-            "or partial payment before delivery."
+            "The customer has a relatively high estimated probability of "
+            "experiencing payment delay. Consider stronger payment protections, "
+            "credit checks, or partial payment before delivery."
         )
 
     if risk_level in {"HIGH", "CRITICAL"} and not recommendations:
@@ -415,7 +415,7 @@ def generate_contract_recommendations(
 
 
 def assess_contract_risk(
-    payment_probability: float,
+    payment_delay_probability: float,
     contract_value: float,
     cash_reserve: float,
     monthly_cost: float,
@@ -436,7 +436,7 @@ def assess_contract_risk(
         recommendations
     """
     _validate_inputs(
-        payment_probability=payment_probability,
+        payment_delay_probability=payment_delay_probability,
         contract_value=contract_value,
         cash_reserve=cash_reserve,
         monthly_cost=monthly_cost,
@@ -455,7 +455,7 @@ def assess_contract_risk(
     )
 
     score_result = calculate_contract_risk_score(
-        payment_probability=payment_probability,
+        payment_delay_probability=payment_delay_probability,
         metrics=metrics,
         upfront_pct=upfront_pct,
     )
@@ -467,7 +467,7 @@ def assess_contract_risk(
     )
 
     recommendations = generate_contract_recommendations(
-        payment_probability=payment_probability,
+        payment_delay_probability=payment_delay_probability,
         contract_value=contract_value,
         cash_reserve=cash_reserve,
         monthly_cost=monthly_cost,
@@ -480,7 +480,7 @@ def assess_contract_risk(
 
     return {
         "inputs": {
-            "payment_probability": payment_probability,
+            "payment_delay_probability": payment_delay_probability,
             "contract_value": contract_value,
             "cash_reserve": cash_reserve,
             "monthly_cost": monthly_cost,

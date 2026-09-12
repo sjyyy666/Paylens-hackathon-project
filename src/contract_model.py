@@ -5,8 +5,8 @@ This module provides the application-facing interface for the
 rule-based Contract Risk Engine.
 
 The ML Risk Engine should provide the customer's estimated probability
-of paying on time. This module then combines that output with contract
-and business cash-flow information.
+of experiencing high payment delay. This module combines that output
+with contract and business cash-flow information.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class ContractModel:
 
     def predict(
         self,
-        payment_probability: float,
+        payment_delay_probability: float,
         contract_value: float,
         cash_reserve: float,
         monthly_cost: float,
@@ -39,10 +39,10 @@ class ContractModel:
         Assess the financial risk of a proposed contract.
 
         Args:
-            payment_probability:
-                Estimated probability that the customer pays on time.
-                This should normally come from the ML Risk Engine and must
-                be between 0 and 1.
+            payment_delay_probability:
+                Estimated probability that the customer will experience
+                high payment delay. This should normally come from the
+                ML Risk Engine and must be between 0 and 1.
 
             contract_value:
                 Total value of the contract.
@@ -69,7 +69,7 @@ class ContractModel:
             and recommendations.
         """
         return assess_contract_risk(
-            payment_probability=payment_probability,
+            payment_delay_probability=payment_delay_probability,
             contract_value=contract_value,
             cash_reserve=cash_reserve,
             monthly_cost=monthly_cost,
@@ -80,7 +80,7 @@ class ContractModel:
 
     def simulate(
         self,
-        payment_probability: float,
+        payment_delay_probability: float,
         contract_value: float,
         cash_reserve: float,
         monthly_cost: float,
@@ -94,7 +94,7 @@ class ContractModel:
         This is useful for a before/after negotiation simulator.
         """
         return self.predict(
-            payment_probability=payment_probability,
+            payment_delay_probability=payment_delay_probability,
             contract_value=contract_value,
             cash_reserve=cash_reserve,
             monthly_cost=monthly_cost,
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     model = ContractModel()
 
     result = model.predict(
-        payment_probability=0.72,
+        payment_delay_probability=0.72,
         contract_value=120000,
         cash_reserve=45000,
         monthly_cost=25000,
