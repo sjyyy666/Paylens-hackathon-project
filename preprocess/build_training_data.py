@@ -7,10 +7,12 @@ from pathlib import Path
 # SETTINGS
 # ============================================================
 
-INPUT_FILE = Path(__file__).parent / "clean.xlsx"
-OUTPUT_FILE = Path(__file__).parent / "training_data.xlsx"
+BASE_DIR = Path(__file__).parent
 
-# Your required model features
+INPUT_FILE = BASE_DIR / "clean.xlsx"
+OUTPUT_XLSX = BASE_DIR / "training_data.xlsx"
+OUTPUT_CSV = BASE_DIR / "training_data.csv"
+
 MODEL_FEATURES = [
     "pct_paid_30",
     "pct_paid_31_60",
@@ -23,203 +25,475 @@ MODEL_FEATURES = [
     "payment_term_gap",
 ]
 
-# Change this if your team chooses a different threshold.
-# 20 means:
-# high_payment_delay = 1 if next period has >= 20%
+# Label:
+# 1 if the NEXT VALID reporting observation has >= 20%
 # of invoices paid after 60 days.
 HIGH_PAYMENT_DELAY_THRESHOLD = 20.0
 
 
 # ============================================================
-# 1. LOAD THE CORRECT SHEET
+# ACTUAL SOURCE COLUMNS IN historical_for_analysis
+# ============================================================
+
+SOURCE_COLUMNS = [
+    "report_id",
+    "entity_name",
+    "abn",
+    "extra_acn",
+    "report_type",
+    "period_start",
+    "period_end",
+
+    "extra_standard_payment_terms",
+
+    "extra_percentage_of_number_invoices_paid_within_20_days",
+    "extra_percentage_of_number_invoices_paid_between_21_and_30_days",
+    "extra_percentage_of_number_invoices_paid_between_31_and_60_days",
+    "extra_percentage_of_number_invoices_paid_between_61_and_90_days",
+    "extra_percentage_of_number_invoices_paid_between_91_and_120_days",
+    "extra_percentage_of_number_invoices_paid_in_more_than_120_days",
+
+    "extra_original_report_date",
+    "extra_revised_report_date",
+    "extra_changes_from_prior_report",
+
+    "industry_division",
+
+    "entity_key",
+    "reporting_period_key",
+    "entity_period_key",
+]
+
+
+# ============================================================
+# HELPER: NUMERIC PAYMENT BANDS
+# ============================================================
+
+PAYMENT_BAND_COLUMNS = [
+    "extra_percentage_of_number_invoices_paid_within_20_days",
+    "extra_percentage_of_number_invoices_paid_between_21_and_30_days",
+    "extra_percentage_of_number_invoices_paid_between_31_and_60_days",
+    "extra_percentage_of_number_invoices_paid_between_61_and_90_days",
+    "extra_percentage_of_number_invoices_paid_between_91_and_120_days",
+    "extra_percentage_of_number_invoices_paid_in_more_than_120_days",
+]
+
+
+# ============================================================
+# HELPER: ESTIMATED AVERAGE PAYMENT TIME
+# ============================================================
+
+def estimate_average_payment_days(row):
+    """
+    Estimate average payment time from the available payment bands.
+
+    This is a proxy because the source data provides ranges rather
+    than exact invoice-level payment times.
+
+    Midpoints:
+        0-20       -> 10
+        21-30      -> 25.5
+        31-60      -> 45.5
+        61-90      -> 75.5
+        91-120     -> 105.5
+        >120       -> 135 (MVP proxy)
+
+    IMPORTANT:
+    The >120 bucket is open-ended, so 135 is only an approximation.
+    """
+
+    midpoint_map = {
+        PAYMENT_BAND_COLUMNS[0]: 10.0,
+        PAYMENT_BAND_COLUMNS[1]: 25.5,
+        PAYMENT_BAND_COLUMNS[2]: 45.5,
+        PAYMENT_BAND_COLUMNS[3]: 75.5,
+        PAYMENT_BAND_COLUMNS[4]: 105.5,
+        PAYMENT_BAND_COLUMNS[5]: 135.0,
+    }
+
+    weighted_sum = 0.0
+    total_percentage = 0.0
+
+    for column, midpoint in midpoint_map.items():
+        value = row[column]
+
+        if pd.notna(value):
+            weighted_sum += float(value) * midpoint
+            total_percentage += float(value)
+
+    if total_percentage <= 0:
+        return np.nan
+
+    return weighted_sum / total_percentage
+
+
+# ============================================================
+# HELPER: ESTIMATED PERCENTAGE PAID WITHIN STANDARD TERM
+# ============================================================
+
+def estimate_paid_within_term(row):
+    """
+    Estimate the percentage of invoices paid within the company's
+    reported standard payment term.
+
+    The source does NOT provide an exact pct_paid_within_payment_term.
+
+    We therefore estimate it from the payment-time bands.
+
+    For a term that falls inside a band, linear interpolation is used.
+
+    Examples:
+        term <= 20:
+            proportion of the 0-20 bucket is estimated linearly.
+
+        term = 30:
+            100% of 0-20 + 100% of 21-30.
+
+        term = 45:
+            100% of <=30 + 50% of the 31-60 bucket.
+
+    This remains a proxy because the underlying distribution inside
+    each band is unknown.
+    """
+
+    term = row["extra_standard_payment_terms"]
+
+    if pd.isna(term):
+        return np.nan
+
+    term = float(term)
+
+    if term < 0:
+        return np.nan
+
+    b0_20 = row[PAYMENT_BAND_COLUMNS[0]]
+    b21_30 = row[PAYMENT_BAND_COLUMNS[1]]
+    b31_60 = row[PAYMENT_BAND_COLUMNS[2]]
+    b61_90 = row[PAYMENT_BAND_COLUMNS[3]]
+    b91_120 = row[PAYMENT_BAND_COLUMNS[4]]
+    b120 = row[PAYMENT_BAND_COLUMNS[5]]
+
+    values = [
+        b0_20,
+        b21_30,
+        b31_60,
+        b61_90,
+        b91_120,
+        b120,
+    ]
+
+    if any(pd.isna(v) for v in values):
+        return np.nan
+
+    if term <= 20:
+        return b0_20 * (term / 20.0)
+
+    if term <= 30:
+        return b0_20 + b21_30 * ((term - 20.0) / 10.0)
+
+    if term <= 60:
+        return b0_20 + b21_30 + b31_60 * ((term - 30.0) / 30.0)
+
+    if term <= 90:
+        return (
+            b0_20
+            + b21_30
+            + b31_60
+            + b61_90 * ((term - 60.0) / 30.0)
+        )
+
+    if term <= 120:
+        return (
+            b0_20
+            + b21_30
+            + b31_60
+            + b61_90
+            + b91_120 * ((term - 90.0) / 30.0)
+        )
+
+    # For >120-day terms, all explicitly measured buckets are
+    # considered within term. The >120 bucket is open-ended, so
+    # we cannot know how much of it is within the exact term.
+    return (
+        b0_20
+        + b21_30
+        + b31_60
+        + b61_90
+        + b91_120
+    )
+
+
+# ============================================================
+# 1. LOAD HISTORICAL DATA
 # ============================================================
 
 print("Reading clean.xlsx...")
+print("Sheet: historical_for_analysis")
 
 df = pd.read_excel(
     INPUT_FILE,
-    sheet_name="Standard report"
+    sheet_name="historical_for_analysis",
 )
 
 print(f"Original rows: {len(df)}")
 
 
 # ============================================================
-# 2. CLEAN IDENTIFIERS AND DATES
+# 2. VERIFY SOURCE SCHEMA
 # ============================================================
 
-# ABN identifies the company.
-df["abn"] = (
-    df["abn"]
-    .astype("string")
-    .str.strip()
-)
+missing_source_columns = [
+    column
+    for column in SOURCE_COLUMNS
+    if column not in df.columns
+]
 
-# Convert dates properly.
+if missing_source_columns:
+    raise ValueError(
+        "The following required source columns are missing:\n"
+        + "\n".join(
+            f"  - {column}"
+            for column in missing_source_columns
+        )
+    )
+
+df = df[SOURCE_COLUMNS].copy()
+
+
+# ============================================================
+# 3. CLEAN IDENTIFIERS AND DATES
+# ============================================================
+
+for column in [
+    "abn",
+    "entity_name",
+    "industry_division",
+    "report_type",
+    "entity_key",
+    "reporting_period_key",
+    "entity_period_key",
+]:
+    df[column] = (
+        df[column]
+        .astype("string")
+        .str.strip()
+    )
+
 df["period_start"] = pd.to_datetime(
     df["period_start"],
-    errors="coerce"
+    errors="coerce",
 )
 
 df["period_end"] = pd.to_datetime(
     df["period_end"],
-    errors="coerce"
+    errors="coerce",
 )
 
-df["report_submitted_date"] = pd.to_datetime(
-    df["report_submitted_date"],
-    errors="coerce"
+df["extra_original_report_date"] = pd.to_datetime(
+    df["extra_original_report_date"],
+    errors="coerce",
 )
 
-# Cannot construct company-period observations without these.
+df["extra_revised_report_date"] = pd.to_datetime(
+    df["extra_revised_report_date"],
+    errors="coerce",
+)
+
 df = df.dropna(
     subset=["abn", "period_end"]
 ).copy()
 
 
 # ============================================================
-# 3. DEAL WITH REVISED REPORTS
+# 4. CONVERT NUMERIC SOURCE FIELDS
 # ============================================================
 
-# There can be more than one report for the same ABN and
-# reporting period.
+for column in PAYMENT_BAND_COLUMNS + [
+    "extra_standard_payment_terms",
+]:
+    df[column] = pd.to_numeric(
+        df[column],
+        errors="coerce",
+    )
+
+
+# ============================================================
+# 5. DUPLICATE / REVISION HANDLING
+# ============================================================
+
+print()
+print("Checking duplicate ABN + period_end rows...")
+
+duplicate_mask = df.duplicated(
+    subset=["abn", "period_end"],
+    keep=False,
+)
+
+print(
+    "Duplicate company-period rows: "
+    f"{int(duplicate_mask.sum())}"
+)
+
+print(
+    "Duplicate company-period groups: "
+    f"{int(df.loc[duplicate_mask, ['abn', 'period_end']].drop_duplicates().shape[0])}"
+)
+
+
+# We do NOT have report_submitted_date in this sheet.
 #
-# We sort by submission date so that if there are revised
-# versions, the latest submitted version is retained.
+# Instead, use the explicit revised report date when available.
+# If revised date is missing, use original report date.
+# If both are missing, preserve deterministic input order.
+#
+# This is a practical MVP revision rule. It does NOT claim that
+# every duplicate has been perfectly resolved by an official
+# revision-status field.
+
+df["_original_row_order"] = np.arange(len(df))
+
+df["_revision_sort_date"] = (
+    df["extra_revised_report_date"]
+    .combine_first(df["extra_original_report_date"])
+)
 
 df = df.sort_values(
     [
         "abn",
         "period_end",
-        "report_submitted_date",
-    ]
+        "_revision_sort_date",
+        "_original_row_order",
+    ],
+    na_position="first",
+    kind="mergesort",
 )
 
 df = df.drop_duplicates(
     subset=["abn", "period_end"],
-    keep="last"
+    keep="last",
 ).copy()
+
+df = df.drop(
+    columns=[
+        "_original_row_order",
+        "_revision_sort_date",
+    ]
+)
+
+print(
+    "Rows after keeping one observation per "
+    f"ABN + period_end: {len(df)}"
+)
 
 
 # ============================================================
-# 4. SORT COMPANY HISTORY
+# 6. SORT COMPANY HISTORY
 # ============================================================
 
 df = df.sort_values(
-    ["abn", "period_end"]
+    [
+        "abn",
+        "period_end",
+        "period_start",
+    ],
+    kind="mergesort",
 ).reset_index(drop=True)
 
-print(
-    f"Rows after keeping one report per company-period: "
-    f"{len(df)}"
-)
-
 
 # ============================================================
-# 5. CONVERT REQUIRED RAW COLUMNS TO NUMERIC
+# 7. CREATE PAYMENT FEATURES
 # ============================================================
 
-raw_numeric_columns = [
-    "pct_invoices_0_30_days",
-    "pct_invoices_31_60_days",
-    "pct_invoices_60_plus_days",
-    "pct_paid_within_payment_term",
-    "avg_payment_time_days",
-    "common_payment_term_days",
-]
-
-for column in raw_numeric_columns:
-    df[column] = pd.to_numeric(
-        df[column],
-        errors="coerce"
-    )
-
-
-# ============================================================
-# 6. CREATE THE FOUR DIRECT PAYMENT FEATURES
-# ============================================================
-
+# 0-30 days
 df["pct_paid_30"] = (
-    df["pct_invoices_0_30_days"]
+    df[
+        "extra_percentage_of_number_invoices_paid_within_20_days"
+    ]
+    + df[
+        "extra_percentage_of_number_invoices_paid_between_21_and_30_days"
+    ]
 )
 
+# 31-60 days
 df["pct_paid_31_60"] = (
-    df["pct_invoices_31_60_days"]
+    df[
+        "extra_percentage_of_number_invoices_paid_between_31_and_60_days"
+    ]
 )
 
+# >60 days
 df["pct_paid_over_60"] = (
-    df["pct_invoices_60_plus_days"]
+    df[
+        "extra_percentage_of_number_invoices_paid_between_61_and_90_days"
+    ]
+    + df[
+        "extra_percentage_of_number_invoices_paid_between_91_and_120_days"
+    ]
+    + df[
+        "extra_percentage_of_number_invoices_paid_in_more_than_120_days"
+    ]
 )
+
+
+# ============================================================
+# 8. ESTIMATE AVERAGE PAYMENT TIME
+# ============================================================
+
+df["estimated_avg_payment_time_days"] = (
+    df.apply(
+        estimate_average_payment_days,
+        axis=1,
+    )
+)
+
+
+# ============================================================
+# 9. ESTIMATE PCT PAID WITHIN PAYMENT TERM
+# ============================================================
 
 df["pct_paid_within_term"] = (
-    df["pct_paid_within_payment_term"]
+    df.apply(
+        estimate_paid_within_term,
+        axis=1,
+    )
 )
 
 
 # ============================================================
-# 7. PAYMENT TREND
+# 10. PAYMENT TREND
 # ============================================================
 
-# Measures how the >60-day percentage changed relative
-# to the company's previous reporting period.
+# Positive = worsening
+# Negative = improving
 #
-# Positive = getting worse
-# Negative = getting better
-#
-# Example:
-#
-# previous = 10%
-# current  = 18%
-#
-# trend = 18 - 10 = +8
+# Current >60-day percentage minus previous observed period.
 
 df["payment_trend"] = (
     df.groupby("abn")["pct_paid_over_60"]
     .diff()
-)
-
-# First observation has no previous period.
-df["payment_trend"] = (
-    df["payment_trend"]
     .fillna(0)
 )
 
 
 # ============================================================
-# 8. PAYMENT VOLATILITY
+# 11. PAYMENT VOLATILITY
 # ============================================================
 
-# Standard deviation of the company's >60-day payment
-# percentage using ONLY observations up to period t.
-#
-# expanding() is important:
-#
-# period 1 -> uses period 1
-# period 2 -> uses periods 1-2
-# period 3 -> uses periods 1-3
-#
-# It NEVER looks into the future.
+# Expanding standard deviation:
+# each row only uses observations at or before that row.
 
 df["payment_volatility"] = (
     df.groupby("abn")["pct_paid_over_60"]
     .expanding()
     .std()
     .reset_index(level=0, drop=True)
-)
-
-# One observation cannot have a standard deviation.
-df["payment_volatility"] = (
-    df["payment_volatility"]
     .fillna(0)
 )
 
 
 # ============================================================
-# 9. NUMBER OF REPORTING PERIODS
+# 12. NUMBER OF REPORTING PERIODS
 # ============================================================
-
-# Number of periods available for the company up to
-# and including period t.
 
 df["num_reporting_periods"] = (
     df.groupby("abn")
@@ -229,67 +503,52 @@ df["num_reporting_periods"] = (
 
 
 # ============================================================
-# 10. PAYMENT TERM GAP
+# 13. PAYMENT TERM GAP
 # ============================================================
 
-# Actual average payment time minus common payment term.
-#
-# Example:
-#
-# average payment time = 47 days
-# common payment term  = 30 days
-#
-# gap = +17 days
-#
-# Positive = paying later than its stated/common term.
-
 df["payment_term_gap"] = (
-    df["avg_payment_time_days"]
-    - df["common_payment_term_days"]
+    df["estimated_avg_payment_time_days"]
+    - df["extra_standard_payment_terms"]
 )
 
 
 # ============================================================
-# 11. INDUSTRY PERCENTILE
+# 14. INDUSTRY PERCENTILE
 # ============================================================
 
-# Compare the company with other businesses in:
-#
-#     same industry
-#     AND
-#     same reporting period
-#
-# using pct_paid_over_60.
-#
-# Higher percentile = worse relative late-payment behaviour.
+# Same period_end + same industry.
+# Higher percentile = worse relative >60-day behaviour.
 
 df["industry_percentile"] = (
     df.groupby(
-        ["period_end", "industry_division"],
-        dropna=False
+        [
+            "period_end",
+            "industry_division",
+        ],
+        dropna=False,
     )["pct_paid_over_60"]
     .rank(
         method="average",
-        pct=True
+        pct=True,
     )
     * 100
 )
 
 
 # ============================================================
-# 12. CREATE NEXT-PERIOD TARGET
+# 15. CREATE NEXT VALID OBSERVATION
 # ============================================================
 
-# THIS IS THE IMPORTANT PART.
+# We deliberately use the next available observation for the
+# same ABN after sorting by period_end.
 #
-# For each company:
-#
-# period t             period t+1
-# --------             ----------
-# model features  ---> pct_paid_over_60
-#
-# shift(-1) gets the value from the NEXT observation
-# belonging to the SAME ABN.
+# We do NOT pretend that every calendar period exists for every
+# company.
+
+df["next_period_end"] = (
+    df.groupby("abn")["period_end"]
+    .shift(-1)
+)
 
 df["next_period_pct_paid_over_60"] = (
     df.groupby("abn")["pct_paid_over_60"]
@@ -297,90 +556,79 @@ df["next_period_pct_paid_over_60"] = (
 )
 
 
-# Also store the next reporting period.
-# This makes it easier to audit the result.
-
-df["next_period_end"] = (
-    df.groupby("abn")["period_end"]
-    .shift(-1)
-)
-
-
 # ============================================================
-# 13. MAKE SURE t+1 IS ACTUALLY LATER THAN t
+# 16. VALID NEXT PERIOD
 # ============================================================
 
 valid_next_period = (
     df["next_period_end"].notna()
-    & (df["next_period_end"] > df["period_end"])
+    & (
+        df["next_period_end"]
+        > df["period_end"]
+    )
+)
+
+print()
+print(
+    "Rows with a valid next reporting observation: "
+    f"{int(valid_next_period.sum())}"
 )
 
 
 # ============================================================
-# 14. CREATE BINARY LABEL
+# 17. CREATE BINARY LABEL
 # ============================================================
-
-# Do not make a label when no valid t+1 exists.
 
 df["high_payment_delay"] = np.nan
 
 df.loc[
     valid_next_period,
-    "high_payment_delay"
+    "high_payment_delay",
 ] = (
     df.loc[
         valid_next_period,
-        "next_period_pct_paid_over_60"
+        "next_period_pct_paid_over_60",
     ]
     >= HIGH_PAYMENT_DELAY_THRESHOLD
 ).astype(int)
 
 
 # ============================================================
-# 15. REMOVE ROWS WITHOUT A VALID NEXT PERIOD
+# 18. KEEP TRAINING ROWS
 # ============================================================
 
 training_df = df[
     valid_next_period
 ].copy()
 
-print(
-    f"Rows with a valid future reporting period: "
-    f"{len(training_df)}"
-)
-
-
-# ============================================================
-# 16. REMOVE ROWS WHERE THE FUTURE TARGET ITSELF IS MISSING
-# ============================================================
-
 training_df = training_df.dropna(
-    subset=["next_period_pct_paid_over_60"]
+    subset=[
+        "next_period_pct_paid_over_60"
+    ]
 ).copy()
 
 
 # ============================================================
-# 17. CHECK FEATURE AVAILABILITY
+# 19. FEATURE AVAILABILITY CHECK
 # ============================================================
 
 print()
-print("Missing feature values BEFORE filtering:")
+print("Missing model feature values:")
 
 for feature in MODEL_FEATURES:
-
-    missing = (
+    missing = int(
         training_df[feature]
         .isna()
         .sum()
     )
 
     print(
-        f"{feature}: {missing}"
+        f"  {feature}: {missing}"
     )
 
 
 # ============================================================
-# 18. REMOVE ROWS WITH MISSING MODEL FEATURES
+# 20. REMOVE MISSING FEATURE ROWS
 # ============================================================
 
 before = len(training_df)
@@ -393,57 +641,103 @@ after = len(training_df)
 
 print()
 print(
-    f"Rows removed because of missing features: "
+    "Rows removed because of missing model features: "
     f"{before - after}"
 )
 
 
 # ============================================================
-# 19. SAFETY CHECK: NO FUTURE INFORMATION IN FEATURES
+# 21. DATA QUALITY CHECKS
+# ============================================================
+
+# Payment percentages should normally be between 0 and 100.
+for feature in [
+    "pct_paid_30",
+    "pct_paid_31_60",
+    "pct_paid_over_60",
+    "pct_paid_within_term",
+]:
+    invalid = (
+        training_df[feature].notna()
+        & (
+            (training_df[feature] < 0)
+            | (training_df[feature] > 100)
+        )
+    )
+
+    if invalid.any():
+        print(
+            f"WARNING: {feature} contains "
+            f"{int(invalid.sum())} values outside 0-100."
+        )
+
+
+# Flag unusual standard terms rather than silently clipping them.
+unusual_terms = (
+    training_df["payment_term_gap"].notna()
+    & (
+        training_df["payment_term_gap"].abs() > 365
+    )
+)
+
+print()
+print(
+    "Rows with payment-term gap > 365 days in absolute value: "
+    f"{int(unusual_terms.sum())}"
+)
+
+
+# ============================================================
+# 22. FUTURE LEAKAGE CHECKS
 # ============================================================
 
 for feature in MODEL_FEATURES:
+    assert not feature.startswith("next_"), (
+        f"Future variable found in MODEL_FEATURES: {feature}"
+    )
 
-    assert not feature.startswith(
-        "next_"
-    ), f"Future variable found in features: {feature}"
+assert "high_payment_delay" not in MODEL_FEATURES
+assert "next_period_pct_paid_over_60" not in MODEL_FEATURES
+assert "next_period_end" not in MODEL_FEATURES
 
-assert (
-    "high_payment_delay"
-    not in MODEL_FEATURES
-)
 
-assert (
-    "next_period_pct_paid_over_60"
-    not in MODEL_FEATURES
-)
+# All model features must be numeric.
+for feature in MODEL_FEATURES:
+    assert pd.api.types.is_numeric_dtype(
+        training_df[feature]
+    ), (
+        f"MODEL FEATURE IS NOT NUMERIC: {feature}"
+    )
+
+
+# Label must be binary.
+assert set(
+    training_df["high_payment_delay"].unique()
+).issubset({0, 1})
 
 
 # ============================================================
-# 20. FINAL OUTPUT COLUMNS
+# 23. FINAL OUTPUT COLUMNS
 # ============================================================
 
 output_columns = [
-    # Identification only — NOT model features
+    # Identification / audit information
     "abn",
     "entity_name",
 
-    # Current reporting period t
+    # Current period t
     "period_start",
     "period_end",
-
     "industry_division",
 
     # Model features at t
     *MODEL_FEATURES,
 
-    # Future period, included for auditing
+    # Future information ONLY for auditing the label
     "next_period_end",
-
-    # Future raw target
     "next_period_pct_paid_over_60",
 
-    # Final machine-learning label
+    # ML label
     "high_payment_delay",
 ]
 
@@ -453,42 +747,68 @@ training_df = training_df[
 
 
 # ============================================================
-# 21. MAKE LABEL AN INTEGER
+# 24. FINAL DATA TYPES
 # ============================================================
+
+training_df["abn"] = (
+    training_df["abn"]
+    .astype("string")
+)
+
+training_df["entity_name"] = (
+    training_df["entity_name"]
+    .astype("string")
+)
+
+training_df["industry_division"] = (
+    training_df["industry_division"]
+    .astype("string")
+)
 
 training_df["high_payment_delay"] = (
     training_df["high_payment_delay"]
     .astype(int)
 )
 
+for feature in MODEL_FEATURES:
+    training_df[feature] = pd.to_numeric(
+        training_df[feature],
+        errors="coerce",
+    )
+
 
 # ============================================================
-# 22. SAVE TRAINING DATA
+# 25. SAVE OUTPUT
 # ============================================================
 
 training_df.to_excel(
-    OUTPUT_FILE,
-    index=False
+    OUTPUT_XLSX,
+    index=False,
+)
+
+training_df.to_csv(
+    OUTPUT_CSV,
+    index=False,
 )
 
 
 # ============================================================
-# 23. PRINT SUMMARY
+# 26. SUMMARY
 # ============================================================
 
 print()
-print("=" * 55)
+print("=" * 60)
 print("TRAINING DATA CREATED SUCCESSFULLY")
-print("=" * 55)
+print("=" * 60)
 
 print()
-print(f"Saved to:")
-print(OUTPUT_FILE)
+print(f"Excel saved to: {OUTPUT_XLSX}")
+print(f"CSV saved to:   {OUTPUT_CSV}")
 
 print()
+print(f"Final training rows: {len(training_df)}")
 print(
-    f"Final training rows: "
-    f"{len(training_df)}"
+    f"Final companies:     {training_df['abn'].nunique()}"
 )
 
 print()
@@ -499,7 +819,7 @@ for feature in MODEL_FEATURES:
 
 print()
 print(
-    f"HIGH PAYMENT DELAY THRESHOLD: "
+    "HIGH PAYMENT DELAY THRESHOLD: "
     f"{HIGH_PAYMENT_DELAY_THRESHOLD}%"
 )
 
@@ -507,9 +827,7 @@ print()
 print("LABEL COUNTS:")
 
 print(
-    training_df[
-        "high_payment_delay"
-    ]
+    training_df["high_payment_delay"]
     .value_counts()
     .sort_index()
 )
@@ -518,14 +836,18 @@ print()
 print("LABEL PERCENTAGES:")
 
 print(
-    training_df[
-        "high_payment_delay"
-    ]
-    .value_counts(
-        normalize=True
-    )
+    training_df["high_payment_delay"]
+    .value_counts(normalize=True)
     .sort_index()
     * 100
+)
+
+print()
+print("MODEL FEATURE DATA TYPES:")
+
+print(
+    training_df[MODEL_FEATURES]
+    .dtypes
 )
 
 print()
