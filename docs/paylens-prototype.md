@@ -1,108 +1,341 @@
-# PayLens
+PayLens
 
-**Know the payment risk before you sign the deal.**
+Know the payment risk before you sign the deal.
 
-PayLens helps a small business decide whether it can afford to take on a large B2B customer. It shows how the customer has paid other suppliers, then works out how exposed *your* business would be under the proposed contract, and lets you restructure the deal to see the exposure drop.
+PayLens helps a small business decide whether it can afford to take on a
+large B2B customer.
 
-> Customer risk ≠ Contract risk. The same customer can be a small risk for one business and a serious one for another.
+The product separates two questions:
 
-This is the **frontend prototype**. All customer data and the payment-delay model are **mocks** behind a clean service interface. The contract exposure engine is real and deterministic.
+Customer payment-delay risk: How likely is the customer to pay late?
 
----
+Contract risk: Given this customer's payment risk, can the business
+financially support the proposed contract?
 
-## Run it
+Customer risk ≠ Contract risk. The same customer can be a small risk for
+one business and a serious risk for another.
 
-Deployed demo: http://10.12.247.232:8502
+The customer payment-delay model and customer data may be mocked in the
+frontend prototype. The Contract Model is deterministic and rule-based.
 
-```bash
-pip install -r requirements.txt      # streamlit (+ pytest for tests)
+Run it
+
+Install the dependencies:
+
+pip install -r requirements.txt
+
+Run the Streamlit application:
+
 streamlit run app.py
-```
 
-For a local run, open http://localhost:8502. The deployed demo above is already running and does not require local installation.
+For a local run, open:
 
-External URL: http://128.250.0.200:8502
+http://localhost:8502
 
-Python 3.9+ and Streamlit 1.41 or newer.
+Python 3.9+ and Streamlit 1.41 or newer are supported.
 
-## Standalone website (no install)
+The deployed demo URLs, if available, should be treated as deployment
+configuration rather than as part of the core application logic.
 
-`web/index.html` is a single-file version of the same product: double-click it and it opens in any browser. It needs no Python or Streamlit and doesn't need to be online (Inter loads from Google Fonts when available, otherwise the system font is used). The scoring engine in `web/src/engine.js` is a line-for-line port of the Python modules; 864 input combinations were cross-checked and match exactly. Rebuild after editing `web/src/*` with `python tools/build_web.py`.
+Standalone website
 
-## Demo path (about 60 seconds)
+web/index.html is a single-file version of the product.
 
-1. Click **Demo Logistics Group** (or type "demo" and press Enter).
-2. Go through the payment profile: 31 / 49 / 20 split, a worsening trend, **HIGH** payment-delay risk (76%).
-3. Keep the default deal ($120k contract, $45k cash, $25k/month costs, 60 days, 0% upfront) and click **Analyse My Deal**. You get **CRITICAL, 79 / 100**.
-4. In **Make this deal safer**, drag upfront to 30% and pick 30-day terms. Exposure moves to **MODERATE, 54**, and the page says *"Same customer. Different deal structure. Lower exposure."*
-5. Or click **Apply suggestion** to jump to the smallest upfront % that reaches Moderate.
-6. Click **New analysis** to start again.
+It can be opened directly in a browser without installing Python or
+Streamlit.
 
-Other demo customers cover the other states: *Sample Corporate Services* (low risk), *Example Infrastructure Ltd* (critical risk) and *Sample Manufacturing Co* (missing industry, history and peer data).
+The browser scoring implementation is intended to mirror the Python
+Contract Model. Rebuild the web version after changing the relevant
+frontend source files:
 
-## Project structure
+python tools/build_web.py
 
-```
-app.py                  page composition + Streamlit callbacks
-src/services.py         the ONLY data/model entry point the UI uses (facade)
-src/mock_services.py    demo companies + mock payment-delay "model"
-src/risk_engine.py      deterministic contract exposure engine (+ min-upfront finder)
-src/recommendations.py  plain-English next steps
-src/state.py            journey state machine (plain dict–testable)
-src/formatting.py       currency parsing / display helpers
-src/ui/components.py    pure HTML builders (no business data)
-src/ui/styles.py        stylesheet (our classes + scoped widget overrides)
-src/ui/compat.py        Streamlit version feature-detection
-.streamlit/config.toml  theme colours, hides chrome and error details
-tests/                  unit tests + full journey test
-tools/preview.py        renders static previews/screenshots of every state
-```
+Demo path
 
-## Plugging in real data and ML
+A typical demonstration follows this sequence:
 
-The UI only calls `src/services.py`. To go live:
+Select or search for a demo customer.
 
-1. Create `src/real_services.py` that implements the same functions and returns the same shapes:
+Review the customer's historical payment profile.
 
-```python
-def search_company(query: str) -> list            # [{company_id, name, abn, industry, size_band, is_demo}]
-def get_company_features(company_id: str) -> dict # {pct_within_30, pct_31_60, pct_over_60, trend, trend_delta_days,
-                                                  #  peer_slower_than_pct, peer_group, industry, abn, name, data_as_of, …}
-def get_company_history(company_id: str)          # [{period, avg_days_to_pay}] (a DataFrame also works)
-def predict_payment_risk(features: dict) -> dict  # {probability 0-1, level, factors[{text, tone}], confidence, model}
-```
+Review the ML payment-delay risk.
 
-2. Run with `PAYLENS_BACKEND=src.real_services streamlit run app.py`, or change the default in `src/services.py`.
+Enter the proposed contract details.
 
-The facade takes care of edge cases: backend errors turn into empty states rather than stack traces, a percentage probability is converted to 0–1, and plain-string factors are accepted.
+Click Analyse My Deal.
 
-## Contract exposure methodology (prototype heuristic)
+Review the separate contract-risk score.
 
-```
-analyse_contract(payment_probability, contract_value, cash_reserve,
-                 monthly_cost, upfront_pct=0.0, payment_terms_days=30) -> dict
-```
+Change the upfront payment or payment terms.
 
-| Component | Max pts | Formula |
-|---|---|---|
-| Customer delay risk | 20 | `p × materiality` |
-| Exposure vs cash | 25 | `1 − exp(−ratio / 2.5)` |
-| Timing vs runway | 35 | `(1 − exp(−pressure)) × materiality` |
-| Upfront protection gap | 20 | `(1 − upfront) × materiality` |
+Recalculate the contract risk and compare the result.
 
-- `net_exposure = contract × (1 − upfront)`, `ratio = net_exposure / cash`
-- `materiality = min(1, ratio / 2)`: the share of your cash that is at stake
-- `pressure = (terms + p × 30 days) / 30 ÷ ((cash + upfront received) / monthly costs)`
-- Bands: 0–30 LOW, 31–55 MODERATE, 56–75 HIGH, 76–100 CRITICAL
+The important product message is:
 
-Every constant lives in `ScoringConfig` in `src/risk_engine.py`. Zero cash, zero costs, a zero contract, 100% upfront and garbage inputs are all handled without crashing. **This is decision support. It is not a validated credit score.**
+Same customer. Different deal structure. Lower or higher contract exposure.
 
-## Tests
+Project structure
 
-```bash
-python -m pytest            # or: python -m unittest discover -s tests -t .
-```
+app.py                         Streamlit page composition and callbacks
 
-The tests cover: score bounds across a large input grid, band boundaries, zero cash / costs / contract, 100% upfront, 90-day terms, very large and very small contracts, monotonicity (more upfront or shorter terms never increase exposure), mock services, the reset flow, recommendations, and a full journey through `app.py`. When Streamlit is installed, the journey test uses Streamlit's `AppTest`. When it isn't, it uses a strict stand-in in `tests/streamlit_stub.py`.
+src/services.py                Only data/model entry point used by the UI
+src/mock_services.py           Demo companies and mock payment-risk model
+src/real_services.py           Real-data service implementation
+src/model_service.py           ML model loading and prediction adapter
+src/ml_process.py              ML data preparation, training, and evaluation
 
-`python tools/preview.py` writes HTML previews and Playwright screenshots of every journey state (initial, search, no results, customer, analysed, simulated, applied, missing data) at desktop and mobile widths.
+src/contract_model.py           Application-facing Contract Model wrapper
+src/contract_risk_engine.py     Deterministic contract-risk calculations
+
+src/recommendations.py          Plain-English next steps
+src/state.py                    Journey state machine
+src/formatting.py               Currency parsing and display helpers
+
+src/ui/components.py            Pure HTML builders
+src/ui/styles.py                Stylesheet
+src/ui/compat.py                Streamlit compatibility helpers
+
+tests/                          Unit tests and full journey tests
+tools/preview.py                Static previews and screenshots
+
+Risk-model separation
+
+ML Risk Engine
+
+The ML Risk Engine predicts customer payment-delay risk from historical
+payment behaviour.
+
+Its current model is binary Logistic Regression using the locked feature
+schema documented in PayLens ML Data Contract.
+
+Its output includes a payment-delay probability and explanatory factors.
+
+Contract Model
+
+The Contract Model does not train an ML model.
+
+It receives:
+
+payment_probability
+
+where the value means the estimated probability that the customer pays on
+time.
+
+It also receives:
+
+contract_value
+cash_reserve
+monthly_cost
+upfront_pct
+delivery_time_days
+payment_terms_days
+
+It returns:
+
+{
+    "risk_score": 0.0,
+    "risk_level": "LOW",
+    "metrics": {},
+    "component_scores": {},
+    "recommended_upfront_pct": 0.0,
+    "recommendations": [],
+}
+
+If the ML layer produces payment-delay probability instead, the integration
+layer must convert it first:
+
+payment_probability = 1 - payment_delay_probability
+
+The two scores must be displayed separately in the UI.
+
+Plugging in real data and ML
+
+The UI should continue to call only src/services.py.
+
+To use real data:
+
+Implement or update src/real_services.py with the same public
+functions and return shapes.
+
+Load the trained ML artifact through src/model_service.py.
+
+Return the existing UI-compatible payment-risk output.
+
+Pass the converted payment probability into src/contract_model.py.
+
+Keep the mock backend available as a fallback.
+
+Expected service functions include:
+
+def search_company(query: str) -> list:
+    # [
+    #   {
+    #       "company_id": "...",
+    #       "name": "...",
+    #       "abn": "...",
+    #       "industry": "...",
+    #       "size_band": "...",
+    #       "is_demo": False,
+    #   }
+    # ]
+
+def get_company_features(company_id: str) -> dict:
+    # Historical payment-behaviour features
+
+def get_company_history(company_id: str):
+    # Historical reporting-period data
+
+def predict_payment_risk(features: dict) -> dict:
+    # {
+    #   "probability": 0.0,
+    #   "level": "LOW",
+    #   "factors": [],
+    #   "confidence": "standard",
+    #   "model": "logistic-v1",
+    # }
+
+The service facade should handle backend errors gracefully and preserve
+the UI output shape.
+
+Contract Model interface
+
+The current Contract Model exposes:
+
+from src.contract_model import ContractModel
+
+model = ContractModel()
+
+result = model.predict(
+    payment_probability=0.80,
+    contract_value=120000,
+    cash_reserve=45000,
+    monthly_cost=25000,
+    upfront_pct=0.00,
+    delivery_time_days=90,
+    payment_terms_days=30,
+)
+
+The result contains:
+
+result["risk_score"]
+result["risk_level"]
+result["metrics"]
+result["component_scores"]
+result["recommended_upfront_pct"]
+result["recommendations"]
+
+The model also supports recalculation through:
+
+model.simulate(...)
+
+This is intended for the frontend's contract-negotiation interaction.
+
+Contract exposure methodology
+
+The Contract Model is a transparent prototype heuristic. It is not a
+validated commercial credit score.
+
+The current implementation considers:
+
+Customer payment risk
+
+Net contract exposure relative to available cash
+
+Time until payment relative to cash runway
+
+Upfront-payment protection
+
+The principal inputs are:
+
+net_exposure = contract_value * (1 - upfront_pct)
+
+total_waiting_days = delivery_time_days + payment_terms_days
+
+The model also calculates:
+
+Contract-to-cash ratio
+
+Cash runway in months
+
+Estimated operating cost during the waiting period
+
+Waiting-cost-to-cash ratio
+
+Recommended upfront payment percentage
+
+Risk bands are:
+
+0–30   LOW
+31–55  MODERATE
+56–75  HIGH
+76–100 CRITICAL
+
+The exact formulas and thresholds are implemented in
+src/contract_risk_engine.py.
+
+Tests
+
+Run the existing test suite:
+
+python -m pytest
+
+Alternatively:
+
+python -m unittest discover -s tests -t .
+
+For a direct Contract Model smoke test:
+
+python -m src.contract_model
+
+The smoke test should print:
+
+Risk score
+
+Risk level
+
+Financial metrics
+
+Recommended upfront payment
+
+Recommendations
+
+The project should also test:
+
+Risk-score bounds
+
+Risk-band boundaries
+
+Zero cash
+
+Zero operating costs
+
+Zero contract value
+
+100% upfront payment
+
+Long payment terms
+
+Large and small contracts
+
+Monotonicity when upfront payment increases
+
+Monotonicity when payment terms decrease
+
+Mock and real service adapters
+
+ML-to-Contract-Model probability conversion
+
+Frontend journey and reset flow
+
+Limitations
+
+PayLens is a decision-support prototype.
+
+The ML results are based on the available historical reporting data and
+should not be presented as a validated credit score.
+
+The Contract Model is a transparent heuristic and should not be treated as
+a legal, financial, lending, or credit decision.
+
+The prepared dataset, target definition, feature mapping, and temporal
+evaluation must be reviewed before production use.
