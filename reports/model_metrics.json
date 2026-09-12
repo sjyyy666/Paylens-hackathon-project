@@ -1,6 +1,6 @@
 {
   "model": "logistic-regression-v1",
-  "input": "preprocess/training_data.csv",
+  "input": "preprocess/company_history.csv",
   "features": [
     "pct_paid_30",
     "pct_paid_31_60",
@@ -16,21 +16,20 @@
   "target_definition": "next_period_pct_paid_over_60 >= 0.2",
   "class_balance": {
     "train": {
-      "0": 25985,
-      "1": 3296
+      "0.0": 24931,
+      "1.0": 3257
     },
     "validation": {
-      "0": 7612,
-      "1": 854
+      "0.0": 7254,
+      "1.0": 811
     },
     "test": {
-      "0": 7300,
-      "1": 791
+      "0.0": 7000,
+      "1.0": 775
     }
   },
   "periods": {
     "train": [
-      "2020-06-30 00:00:00",
       "2020-12-28 00:00:00",
       "2020-12-31 00:00:00",
       "2021-01-31 00:00:00",
@@ -93,7 +92,6 @@
       "2022-05-31 00:00:00",
       "2022-06-01 00:00:00",
       "2022-06-03 00:00:00",
-      "2022-06-21 00:00:00",
       "2022-06-25 00:00:00",
       "2022-06-26 00:00:00",
       "2022-06-27 00:00:00",
@@ -135,10 +133,10 @@
       "2023-01-04 00:00:00",
       "2023-01-08 00:00:00",
       "2023-01-28 00:00:00",
-      "2023-01-29 00:00:00"
+      "2023-01-29 00:00:00",
+      "2023-01-31 00:00:00"
     ],
     "validation": [
-      "2023-01-31 00:00:00",
       "2023-02-01 00:00:00",
       "2023-02-03 00:00:00",
       "2023-02-26 00:00:00",
@@ -172,10 +170,10 @@
       "2023-09-28 00:00:00",
       "2023-09-29 00:00:00",
       "2023-09-30 00:00:00",
-      "2023-10-01 00:00:00"
+      "2023-10-01 00:00:00",
+      "2023-10-27 00:00:00"
     ],
     "test": [
-      "2023-10-27 00:00:00",
       "2023-10-28 00:00:00",
       "2023-10-29 00:00:00",
       "2023-10-31 00:00:00",
@@ -215,39 +213,41 @@
   },
   "metrics": {
     "train": {
-      "rows": 29281,
-      "positive_count": 3296,
-      "negative_count": 25985,
+      "rows": 28188,
+      "positive_count": 3257,
+      "negative_count": 24931,
       "classification_threshold": 0.5,
-      "roc_auc": 0.9122959521082925,
-      "f1": 0.5896774193548387,
-      "precision": 0.45669553630912724,
-      "recall": 0.8319174757281553
+      "roc_auc": 0.9151024897492025,
+      "f1": 0.5993621467062575,
+      "precision": 0.4669294037011652,
+      "recall": 0.8366595026097636
     },
     "validation": {
-      "rows": 8466,
-      "positive_count": 854,
-      "negative_count": 7612,
+      "rows": 8065,
+      "positive_count": 811,
+      "negative_count": 7254,
       "classification_threshold": 0.5,
-      "roc_auc": 0.9216752699115535,
-      "f1": 0.5796178343949044,
-      "precision": 0.4390832328106152,
-      "recall": 0.8524590163934426
+      "roc_auc": 0.9242707029787892,
+      "f1": 0.5753086419753086,
+      "precision": 0.43174799258801727,
+      "recall": 0.8618988902589396
     },
     "test": {
-      "rows": 8091,
-      "positive_count": 791,
-      "negative_count": 7300,
+      "rows": 7775,
+      "positive_count": 775,
+      "negative_count": 7000,
       "classification_threshold": 0.5,
-      "roc_auc": 0.9211308730062518,
-      "f1": 0.5981818181818181,
-      "precision": 0.46699787083037614,
-      "recall": 0.831858407079646
+      "roc_auc": 0.9249663594470047,
+      "f1": 0.5958219800181653,
+      "precision": 0.45970567624386827,
+      "recall": 0.8464516129032258
     }
   },
   "limitations": [
     "Training data is derived from the data-owner preprocessing pipeline.",
     "Evaluation uses chronological period_end splits, not random rows.",
+    "Reports without payment bands are excluded; they carry no payment behaviour.",
+    "payment_trend and payment_volatility are absent for a company's first period and are median-imputed with a missingness indicator.",
     "Feature and label definitions should be reviewed with the data owner before production use."
   ]
 }

@@ -71,7 +71,13 @@ def _load_frame(input_path: str | Path, sheet_name: str = DEFAULT_INPUT_SHEET) -
 
 
 def _load_prepared_csv(input_path: str | Path) -> pd.DataFrame:
-    """Load the data-owner's already labelled canonical training CSV."""
+    """Load the data-owner's canonical prepared CSV and keep labelled rows.
+
+    The company-history export carries every reported period, so the final
+    period of each company has no next-period outcome and is not a training
+    example. Rows without payment bands are dropped rather than imputed: with
+    no payment behaviour at all, an imputed row would be an invented company.
+    """
     frame = pd.read_csv(input_path)
     _require_columns(frame, PREPARED_REQUIRED_COLUMNS)
     frame = frame.copy()
@@ -80,6 +86,7 @@ def _load_prepared_csv(input_path: str | Path) -> pd.DataFrame:
     frame = frame.dropna(subset=["company_id", "reporting_period"])
     for feature in ("pct_paid_30", "pct_paid_31_60", "pct_paid_over_60", "pct_paid_within_term"):
         frame[feature] = _fraction(frame[feature])
+    frame = frame.dropna(subset=["pct_paid_over_60", TARGET_COLUMN])
     frame[TARGET_COLUMN] = pd.to_numeric(frame[TARGET_COLUMN], errors="coerce")
     if not frame[TARGET_COLUMN].isin([0, 1]).all():
         raise MLProcessError(f"{TARGET_COLUMN} must contain only 0/1 labels")
@@ -181,7 +188,9 @@ def train_logistic_regression(train: pd.DataFrame, artifact_path: str | Path) ->
     if labels.nunique() < 2:
         raise MLProcessError("Training data must contain both label classes")
     pipeline = Pipeline([
-        ("imputer", SimpleImputer(strategy="median")),
+        # Keep a missingness indicator so absent payment-term data is not
+        # indistinguishable from a real median-valued observation.
+        ("imputer", SimpleImputer(strategy="median", add_indicator=True)),
         ("scaler", StandardScaler()),
         ("model", LogisticRegression(class_weight="balanced", max_iter=2000, random_state=42)),
     ])

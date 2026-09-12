@@ -11,6 +11,7 @@ from src.ml_process import (
     TARGET_THRESHOLD,
     build_training_data,
     _load_prepared_csv,
+    train_logistic_regression,
     temporal_split,
 )
 
@@ -78,6 +79,41 @@ class MLProcessTests(unittest.TestCase):
         self.assertEqual(len(loaded), len(source))
         self.assertLessEqual(float(loaded["pct_paid_over_60"].max()), 1.0)
         self.assertIn("reporting_period", loaded.columns)
+
+    def test_prepared_csv_drops_unlabelled_and_bandless_rows(self):
+        """The history export keeps each company's final period, which has no label."""
+        source = build_training_data(fixture()).rename(columns={
+            "company_id": "abn",
+            "reporting_period": "period_end",
+        })
+        for feature in ("pct_paid_30", "pct_paid_31_60", "pct_paid_over_60", "pct_paid_within_term"):
+            source[feature] = source[feature] * 100
+        source["next_period_pct_paid_over_60"] = source["next_period_pct_paid_over_60"] * 100
+        source[TARGET_COLUMN] = source[TARGET_COLUMN].astype(float)
+        unlabelled = source.iloc[[0]].copy()
+        unlabelled[TARGET_COLUMN] = float("nan")
+        unlabelled["next_period_pct_paid_over_60"] = float("nan")
+        bandless = source.iloc[[1]].copy()
+        bandless["pct_paid_over_60"] = float("nan")
+        combined = pd.concat([source, unlabelled, bandless], ignore_index=True)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "company_history.csv"
+            combined.to_csv(path, index=False)
+            loaded = _load_prepared_csv(path)
+        self.assertEqual(len(loaded), len(source))
+        self.assertTrue(loaded[TARGET_COLUMN].isin([0, 1]).all())
+
+    def test_training_pipeline_tracks_missing_term_gap(self):
+        from joblib import load
+
+        training = build_training_data(fixture())
+        training["payment_term_gap"] = 0.0
+        training.loc[training.index[0], "payment_term_gap"] = float("nan")
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "model.joblib"
+            train_logistic_regression(training, artifact)
+            pipeline = load(artifact)["model"]
+        self.assertTrue(pipeline.named_steps["imputer"].add_indicator)
 
 
 if __name__ == "__main__":
