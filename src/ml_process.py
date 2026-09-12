@@ -33,6 +33,7 @@ TARGET_COLUMN = "high_payment_delay"
 NEXT_OUTCOME_COLUMN = "next_period_pct_paid_over_60"
 TARGET_THRESHOLD = 0.20
 DEFAULT_INPUT_SHEET = "historical_for_analysis"
+PREPARED_REQUIRED_COLUMNS = ["abn", "period_end", *MODEL_FEATURES, NEXT_OUTCOME_COLUMN, TARGET_COLUMN]
 
 SOURCE_COLUMNS = {
     "company_id": "abn",
@@ -67,6 +68,29 @@ def _load_frame(input_path: str | Path, sheet_name: str = DEFAULT_INPUT_SHEET) -
     if not path.exists():
         raise FileNotFoundError(f"Input workbook not found: {path}")
     return pd.read_excel(path, sheet_name=sheet_name)
+
+
+def _load_prepared_csv(input_path: str | Path) -> pd.DataFrame:
+    """Load the data-owner's already labelled canonical training CSV."""
+    frame = pd.read_csv(input_path)
+    _require_columns(frame, PREPARED_REQUIRED_COLUMNS)
+    frame = frame.copy()
+    frame["company_id"] = frame["abn"].astype("string").str.strip()
+    frame["reporting_period"] = pd.to_datetime(frame["period_end"], errors="coerce")
+    frame = frame.dropna(subset=["company_id", "reporting_period"])
+    for feature in ("pct_paid_30", "pct_paid_31_60", "pct_paid_over_60", "pct_paid_within_term"):
+        frame[feature] = _fraction(frame[feature])
+    frame[TARGET_COLUMN] = pd.to_numeric(frame[TARGET_COLUMN], errors="coerce")
+    if not frame[TARGET_COLUMN].isin([0, 1]).all():
+        raise MLProcessError(f"{TARGET_COLUMN} must contain only 0/1 labels")
+    expected_labels = (frame[NEXT_OUTCOME_COLUMN] >= TARGET_THRESHOLD * 100).astype(int)
+    if not frame[TARGET_COLUMN].astype(int).eq(expected_labels).all():
+        raise MLProcessError(
+            f"{TARGET_COLUMN} does not match {NEXT_OUTCOME_COLUMN} >= "
+            f"{TARGET_THRESHOLD * 100:g} percent"
+        )
+    return frame[["company_id", "reporting_period", *MODEL_FEATURES,
+                  NEXT_OUTCOME_COLUMN, TARGET_COLUMN]].reset_index(drop=True)
 
 
 def _deduplicate_and_sort(frame: pd.DataFrame) -> pd.DataFrame:
@@ -194,7 +218,9 @@ def evaluate_model(model: Any, frame: pd.DataFrame) -> dict[str, Any]:
 
 def run(input_path: str | Path, output_path: str | Path, artifact_path: str | Path | None = None) -> dict[str, Any]:
     """Read cleaned input, write training rows, and optionally save a model."""
-    frame = build_training_data(_load_frame(input_path))
+    input_path = Path(input_path)
+    frame = (_load_prepared_csv(input_path) if input_path.suffix.lower() == ".csv"
+             else build_training_data(_load_frame(input_path)))
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output, index=False)

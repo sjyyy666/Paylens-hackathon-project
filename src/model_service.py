@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from src.ml_process import MODEL_FEATURES
 
 DEFAULT_ARTIFACT = Path(__file__).resolve().parents[1] / "models" / "payment_risk.joblib"
@@ -82,7 +84,7 @@ def predict_payment_risk(features: dict, artifact_path: str | Path = DEFAULT_ART
     if any(name not in features for name in MODEL_FEATURES):
         return _fallback(features, "historical-risk-fallback-missing-features")
     try:
-        values = [[features.get(name) for name in MODEL_FEATURES]]
+        values = pd.DataFrame([{name: features.get(name) for name in MODEL_FEATURES}], columns=MODEL_FEATURES)
         probability = _probability(artifact["model"].predict_proba(values)[0][1])
     except (AttributeError, TypeError, ValueError, KeyError):
         return _fallback(features, "historical-risk-fallback-inference-error")

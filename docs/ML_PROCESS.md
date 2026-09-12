@@ -1,8 +1,8 @@
 # PayLens ML Process
 
-Status: **Pipeline specification and implementation ready; validated training data is still pending.**
+Status: **Prepared training data validated; Logistic Regression baseline trained.**
 
-The process is not currently connected to the PayLens UI and must not be used to claim model performance until the data owner confirms the input schema, class balance, and temporal evaluation. It reads the agreed cleaned workbook input when that data is available, builds one training observation per company and reporting period, and predicts whether the company's next valid reporting period will show high payment-delay behaviour.
+The process is not currently connected to the PayLens UI. It accepts the data-owner's prepared canonical CSV, builds temporal splits, and trains a binary Logistic Regression model to predict whether the company's next valid reporting period will show high payment-delay behaviour.
 
 ## Locked parameters
 
@@ -31,18 +31,28 @@ The model is binary Logistic Regression. The UI may map its probability to `LOW`
 
 ## Input contract
 
-When validated data is available, input is the cleaned workbook created by `preprocess/data_process.py`, using the `historical_for_analysis` sheet. The required source columns are:
+The preferred validated input is `preprocess/training_data.csv`. It already contains the canonical model features and next-period label. The source workbook mapping is owned by the data pipeline and is not repeated in the ML training step.
 
-```text
+The prepared CSV must contain:
 abn
 period_end
-pct_invoices_0_30_days
-pct_invoices_31_60_days
-pct_invoices_60_plus_days
-pct_paid_within_payment_term
-avg_payment_time_days
-common_payment_term_days
+pct_paid_30
+pct_paid_31_60
+pct_paid_over_60
+pct_paid_within_term
+payment_trend
+payment_volatility
+industry_percentile
+num_reporting_periods
+payment_term_gap
+next_period_pct_paid_over_60
+high_payment_delay
 industry_division
+```
+
+The prepared CSV stores payment percentages on a `0–100` scale. Therefore the
+locked canonical threshold `0.20` is validated as `20` in this input file:
+`high_payment_delay = 1` exactly when `next_period_pct_paid_over_60 >= 20`.
 ```
 
 One row represents one company report. Repeated company-period observations are treated as revisions; when `report_submitted_date` exists, the latest submitted revision is kept.
@@ -90,22 +100,49 @@ Splits are made by period, never by random rows. The process requires at least t
 
 ## Run
 
-Install the ML dependencies when the data is ready:
+Install the ML dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Prepare training rows after the input contract has been confirmed:
+Train from the validated prepared CSV and save the artifact:
 
 ```bash
-python -m src.ml_process preprocess/clean.xlsx data/training_rows.csv
+python -m src.ml_process preprocess/training_data.csv /tmp/training_rows.csv \
+    --artifact models/payment_risk.joblib
 ```
 
-Prepare rows and save the Logistic Regression artifact:
+The command reports class balance and metrics for the chronological train,
+validation, and test splits. The current baseline is recorded in
+`reports/model_metrics.json`.
+
+For the current data, the test split has ROC-AUC `0.9211`, F1 `0.5982`,
+precision `0.4670`, and recall `0.8319`, with 791 positive and 7,300 negative
+rows. These are baseline results, not a validated commercial credit score.
+
+The older workbook-to-canonical preparation path remains available only after
+the data owner confirms its source-column mapping:
 
 ```bash
-python -m src.ml_process preprocess/clean.xlsx data/training_rows.csv --artifact models/payment_risk.joblib
+python -m src.ml_process preprocess/clean.xlsx /tmp/training_rows.csv
 ```
+
+## Integration without UI changes
+
+The prepared-data backend is opt-in and preserves the existing service facade:
+
+```bash
+PAYLENS_BACKEND=src.real_services streamlit run app.py
+```
+
+`src/real_services.py` reads the canonical prepared CSV, calls
+`src/model_service.py`, and returns the existing `factors` output shape. The
+default backend remains `src.mock_services`, so the demo remains available if
+the real data or model artifact is unavailable.
+
+The prepared CSV does not contain exact historical average payment-day values.
+The real backend therefore returns period markers only for history and does not
+invent `avg_days_to_pay` values. This is an explicit data limitation.
 
 The generated CSV is a training intermediate, not source data. Do not run this against invented or synthetic production data. Do not commit generated training outputs or model artifacts until the target class balance and temporal evaluation have been reviewed.

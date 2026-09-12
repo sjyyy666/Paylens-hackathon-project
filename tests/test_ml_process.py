@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 import pandas as pd
 
@@ -8,6 +10,7 @@ from src.ml_process import (
     TARGET_COLUMN,
     TARGET_THRESHOLD,
     build_training_data,
+    _load_prepared_csv,
     temporal_split,
 )
 
@@ -59,6 +62,22 @@ class MLProcessTests(unittest.TestCase):
     def test_missing_source_column_fails_loudly(self):
         with self.assertRaises(ValueError):
             build_training_data(fixture().drop(columns=["common_payment_term_days"]))
+
+    def test_prepared_csv_is_normalized_and_loaded(self):
+        source = build_training_data(fixture()).rename(columns={
+            "company_id": "abn",
+            "reporting_period": "period_end",
+        })
+        for feature in ("pct_paid_30", "pct_paid_31_60", "pct_paid_over_60", "pct_paid_within_term"):
+            source[feature] = source[feature] * 100
+        source["next_period_pct_paid_over_60"] = source["next_period_pct_paid_over_60"] * 100
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "training_data.csv"
+            source.to_csv(path, index=False)
+            loaded = _load_prepared_csv(path)
+        self.assertEqual(len(loaded), len(source))
+        self.assertLessEqual(float(loaded["pct_paid_over_60"].max()), 1.0)
+        self.assertIn("reporting_period", loaded.columns)
 
 
 if __name__ == "__main__":
