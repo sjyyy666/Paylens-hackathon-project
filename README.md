@@ -16,6 +16,25 @@ PayLens is designed to support better commercial decisions **before a contract i
 
 ---
 
+## My Contributions
+
+My main contributions to the PayLens project included:
+
+### 1. Data Processing
+
+- Processed and cleaned the raw company-payment data.
+- Handled data preparation and transformation to produce reliable, structured datasets.
+- Converted the cleaned data into training data suitable for the machine-learning payment-delay model.
+
+### 2. Contract Risk Engine
+
+- Developed the rule-based Contract Risk Engine.
+- Implemented calculations for contract exposure, cash-flow pressure, payment timing, upfront payment protection, and customer payment-delay risk.
+- Designed the risk-scoring logic to provide transparent and interpretable contract-risk assessments.
+- Supported risk recommendations and comparisons between different contract payment terms.
+
+---
+
 ## Try It
 
 | | |
