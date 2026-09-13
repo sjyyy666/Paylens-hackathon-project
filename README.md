@@ -16,8 +16,32 @@ PayLens is designed to support better commercial decisions **before a contract i
 
 ---
 
+## Try It
+
+| | |
+|---|---|
+| **Live demo** | https://claude.ai/code/artifact/e88bcbaf-5e81-430d-aafe-81bbad16c9f6 |
+| **Source** | https://github.com/windsorrr09-sys/ai-hackathon-2026 |
+
+The live demo is the standalone web build — no install, no Python, runs entirely
+in the browser. It uses the demo dataset and a mock delay model; the Streamlit
+application in this repository runs the trained model against the full company
+history. Both score through the same contract engine, so exposure scores match.
+
+To run the demo build locally instead, open `web/index.html` in a browser, or
+rebuild it from source:
+
+```bash
+python tools/build_web.py
+```
+
+For the full application with real data, see [Running the Application](#running-the-application).
+
+---
+
 ## Table of Contents
 
+- [Try It](#try-it)
 - [Overview](#overview)
 - [Key Features](#key-features)
 - [How PayLens Works](#how-paylens-works)
