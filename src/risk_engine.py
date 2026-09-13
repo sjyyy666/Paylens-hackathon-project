@@ -29,10 +29,16 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 LEVELS = ("LOW", "MODERATE", "HIGH", "CRITICAL")
 LEVEL_BANDS = ((30, "LOW"), (55, "MODERATE"), (75, "HIGH"), (100, "CRITICAL"))
+
+# Ceiling the suggestion solver will ask for. Tuned to the contract engine's
+# scale: on a contract worth several times the supplier's cash reserve, 50%
+# upfront does not reach MODERATE, so a 50% cap could only ever answer "not
+# reachable" and hid the fact that a larger deposit would work.
+MAX_SUGGESTED_UPFRONT_PCT = 90
 LEVEL_RANK = {lvl: i for i, lvl in enumerate(LEVELS)}
 METHODOLOGY_VERSION = "prototype-heuristic-0.1"
 MAX_TERMS_DAYS = 365
@@ -279,6 +285,22 @@ def _reasons(r: dict) -> list:
 # Minimum upfront finder
 # ---------------------------------------------------------------------------
 
+# A scoring function with this module's analyse_contract shape, minus config:
+#     (p, contract_value, cash_reserve, monthly_cost, upfront_frac, terms) -> result
+#
+# The solver below must score with the SAME engine the UI displays. When the
+# contract engine landed, the displayed score moved to contract_adapter while
+# this solver kept using the local heuristic, so suggestions promised a level
+# the user never saw (a ~15-20 point gap). Callers inject the display engine.
+Scorer = Callable[[float, float, float, float, float, int], dict]
+
+
+def _scorer(scorer: Optional[Scorer], config: ScoringConfig) -> Scorer:
+    if scorer is not None:
+        return scorer
+    return lambda p, v, c, m, u, t: analyse_contract(p, v, c, m, u, t, config)
+
+
 def find_min_upfront(
     payment_probability: float,
     contract_value: float,
@@ -286,16 +308,22 @@ def find_min_upfront(
     monthly_cost: float,
     payment_terms_days: int,
     target_level: str = "MODERATE",
-    max_pct: int = 50,
+    max_pct: int = MAX_SUGGESTED_UPFRONT_PCT,
     step: int = 5,
     config: ScoringConfig = DEFAULT_CONFIG,
+    scorer: Optional[Scorer] = None,
 ) -> Optional[dict]:
     """Smallest upfront % (0, 5, … max_pct) reaching ``target_level`` or
-    better. Returns {"upfront_pct", "score", "level", "terms"} or None."""
+    better. Returns {"upfront_pct", "score", "level", "terms"} or None.
+
+    ``scorer`` must be the same engine the UI displays, or the suggestion will
+    promise a level the user never sees. See ``Scorer``.
+    """
+    score = _scorer(scorer, config)
     target_rank = LEVEL_RANK.get(target_level, 1)
     for pct in range(0, max_pct + 1, step):
-        res = analyse_contract(payment_probability, contract_value, cash_reserve,
-                               monthly_cost, pct / 100.0, payment_terms_days, config)
+        res = score(payment_probability, contract_value, cash_reserve,
+                    monthly_cost, pct / 100.0, payment_terms_days)
         if LEVEL_RANK[res["level"]] <= target_rank:
             return {"upfront_pct": pct, "score": res["score"], "level": res["level"],
                     "terms": int(payment_terms_days)}
@@ -311,25 +339,67 @@ def suggest_structure(
     target_level: str = "MODERATE",
     term_options=(30, 45, 60, 90),
     config: ScoringConfig = DEFAULT_CONFIG,
+    scorer: Optional[Scorer] = None,
 ) -> dict:
     """Suggest the least demanding way to reach ``target_level``.
 
     Tries upfront alone at the current terms first; if that fails, tries
     shorter terms. Returns {"status": ..., "suggestion": {...} | None}.
     status: "already" | "upfront" | "upfront_and_terms" | "not_reachable"
+
+    The returned ``upfront_pct`` is a FLOOR: the least the supplier should ask
+    for. It is not a setpoint, and a caller must never lower a user's existing
+    upfront to meet it -- that would move them to a worse position.
+
+    ``terms`` in the result echoes the terms the solution was found at, which
+    for status "upfront" is always ``payment_terms_days``. Callers must not
+    read it as a recommendation to change terms.
+
+    ``scorer`` must be the engine the UI displays; see ``find_min_upfront``.
     """
-    base = analyse_contract(payment_probability, contract_value, cash_reserve,
-                            monthly_cost, 0.0, payment_terms_days, config)
+    score = _scorer(scorer, config)
+    base = score(payment_probability, contract_value, cash_reserve,
+                 monthly_cost, 0.0, payment_terms_days)
     if LEVEL_RANK[base["level"]] <= LEVEL_RANK[target_level]:
         return {"status": "already", "suggestion": {"upfront_pct": 0, "terms": int(payment_terms_days),
                                                    "score": base["score"], "level": base["level"]}}
     at_terms = find_min_upfront(payment_probability, contract_value, cash_reserve, monthly_cost,
-                                payment_terms_days, target_level, config=config)
+                                payment_terms_days, target_level, config=config, scorer=scorer)
     if at_terms:
         return {"status": "upfront", "suggestion": at_terms}
     for t in sorted((o for o in term_options if o < int(payment_terms_days)), reverse=True):
         s = find_min_upfront(payment_probability, contract_value, cash_reserve, monthly_cost,
-                             t, target_level, config=config)
+                             t, target_level, config=config, scorer=scorer)
         if s:
             return {"status": "upfront_and_terms", "suggestion": s}
     return {"status": "not_reachable", "suggestion": None}
+
+
+def suggestion_is_actionable(
+    result: Optional[dict],
+    revised_upfront_pct: float,
+    revised_level: str,
+    target_level: str = "MODERATE",
+) -> bool:
+    """Whether applying ``result`` would actually improve the revised deal.
+
+    Guards three ways the raw suggestion must not be handed straight to an
+    Apply action:
+
+    * The suggested upfront is a FLOOR. If the user already asks for more, it
+      is below their position and applying it would lower their upfront and
+      raise their risk.
+    * If the revised deal already reaches ``target_level``, there is nothing
+      to apply.
+    * ``result["terms"]`` echoes the terms the solution was found at, so an
+      equality check against it cannot tell whether anything would change;
+      only the upfront can differ for status "upfront".
+    """
+    if not result:
+        return False
+    suggestion = result.get("suggestion")
+    if not suggestion or result.get("status") not in ("upfront", "upfront_and_terms"):
+        return False
+    if LEVEL_RANK.get(revised_level, 3) <= LEVEL_RANK.get(target_level, 1):
+        return False
+    return suggestion["upfront_pct"] > revised_upfront_pct

@@ -318,7 +318,12 @@
     return items.slice(0, 3).map(([, text, tone]) => ({ text, tone }));
   }
 
-  function findMinUpfront(p, cv, cash, mc, terms, target = "MODERATE", maxPct = 50, step = 5) {
+  // Mirrors risk_engine.MAX_SUGGESTED_UPFRONT_PCT. A 50% ceiling could only
+  // answer "not reachable" on a contract worth several times the supplier's
+  // cash reserve, hiding the fact that a larger deposit would work.
+  const MAX_SUGGESTED_UPFRONT_PCT = 90;
+
+  function findMinUpfront(p, cv, cash, mc, terms, target = "MODERATE", maxPct = MAX_SUGGESTED_UPFRONT_PCT, step = 5) {
     const tRank = LEVEL_RANK[target] ?? 1;
     for (let pct = 0; pct <= maxPct; pct += step) {
       const res = analyseContract(p, cv, cash, mc, pct / 100, terms);
@@ -337,6 +342,18 @@
       if (s) return { status: "upfront_and_terms", suggestion: s };
     }
     return { status: "not_reachable", suggestion: null };
+  }
+
+  // Mirrors risk_engine.suggestion_is_actionable. The suggested upfront is a
+  // FLOOR, so applying it when the user already asks for more would lower their
+  // upfront and raise their risk; and `terms` only echoes the terms the solution
+  // was found at, so it cannot tell whether anything would change.
+  function suggestionIsActionable(result, revisedUpfrontPct, revisedLevel, target = "MODERATE") {
+    if (!result) return false;
+    const g = result.suggestion;
+    if (!g || (result.status !== "upfront" && result.status !== "upfront_and_terms")) return false;
+    if ((LEVEL_RANK[revisedLevel] ?? 3) <= (LEVEL_RANK[target] ?? 1)) return false;
+    return g.upfront_pct > revisedUpfrontPct;
   }
 
   // ------------------------------------------------------ recommendations
@@ -380,7 +397,8 @@
   root.PayLens = {
     fmtCurrency, fmtRatio, fmtMonths, fmtPct, parseAmount, fmtAmountInput,
     searchCompany, suggestedCompanies, getCompanyFeatures, getCompanyHistory, predictPaymentRisk,
-    analyseContract, levelForScore, findMinUpfront, suggestStructure, buildRecommendations,
+    analyseContract, levelForScore, findMinUpfront, suggestStructure, suggestionIsActionable,
+    buildRecommendations, MAX_SUGGESTED_UPFRONT_PCT,
     LEVELS, LEVEL_RANK, CONFIG, METHODOLOGY_VERSION, DATA_AS_OF,
   };
 })(typeof window !== "undefined" ? window : globalThis);

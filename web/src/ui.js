@@ -308,15 +308,14 @@
 
     // Suggestion
     let sugHtml;
-    if (!s || s.status === "not_reachable") sugHtml = `<div class="pl-suggest pl-suggest--muted"><div class="pl-suggest-label">${icon("info", 15)}Suggested minimum upfront payment</div><div class="pl-suggest-body">Upfront payment of up to 50% won't reach Moderate on its own. Consider a smaller initial scope or staged billing.</div></div>`;
+    if (!s || s.status === "not_reachable") sugHtml = `<div class="pl-suggest pl-suggest--muted"><div class="pl-suggest-label">${icon("info", 15)}Suggested minimum upfront payment</div><div class="pl-suggest-body">Upfront payment of up to ${P.MAX_SUGGESTED_UPFRONT_PCT}% won't reach Moderate on its own. Consider a smaller initial scope or staged billing.</div></div>`;
     else if (s.status === "already") sugHtml = `<div class="pl-suggest pl-suggest--good"><div class="pl-suggest-label">${icon("check", 15)}Suggested minimum upfront payment</div><div class="pl-suggest-value">0%</div><div class="pl-suggest-body">Your deal already sits at ${LABEL[s.suggestion.level]} exposure or lower at ${s.suggestion.terms}-day terms.</div></div>`;
     else {
       const g = s.suggestion, note = s.status === "upfront_and_terms" ? `with ${g.terms}-day terms` : `at ${g.terms}-day terms`;
       sugHtml = `<div class="pl-suggest"><div class="pl-suggest-label">${icon("shield", 15)}Suggested minimum upfront payment</div><div class="pl-suggest-value">${g.upfront_pct}%</div><div class="pl-suggest-body">To reach ${LABEL[g.level]} exposure ${note}, under the current assumptions (score ${g.score}).</div></div>`;
     }
     $("suggest").innerHTML = sugHtml;
-    const g = s && s.suggestion;
-    $("btn-apply").disabled = !(g && (s.status === "upfront" || s.status === "upfront_and_terms") && !(g.upfront_pct === rd.upfront_pct && g.terms === rd.payment_terms_days));
+    $("btn-apply").disabled = !P.suggestionIsActionable(s, rd.upfront_pct, revised.level);
     $("btn-reset-sim").disabled = sameDeal(rd, cd);
 
     renderCompare(current, revised);
