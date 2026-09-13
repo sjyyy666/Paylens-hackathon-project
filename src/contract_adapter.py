@@ -16,8 +16,8 @@ signature of ``risk_engine.analyse_contract`` so it is a drop-in replacement at
 the ``services`` seam. It adds no scoring logic of its own: the numbers come
 from the contract engine.
 
-It is not wired in yet. Swapping engines changes every score the product
-shows, so that switch is a team decision, not an import.
+This is the engine the product ships: ``services.analyse_contract`` resolves
+here, so both the deal panel and the simulator score through it.
 """
 
 from __future__ import annotations
@@ -37,13 +37,13 @@ DEFAULT_DELIVERY_DAYS = 30
 METHODOLOGY_VERSION = "contract-engine-1.0"
 FALLBACK_METHODOLOGY_VERSION = "contract-engine-1.0+exposure-fallback"
 
-# Component weights inside contract_risk_engine.calculate_contract_risk_score.
-# Repeated here only to express each component's share as points out of 100.
+# Each component's share as points out of 100. Read from the engine rather than
+# restated, so a weight change there cannot leave this breakdown stale.
 _COMPONENT_WEIGHTS = (
-    ("customer", "Customer delay risk", "customer_risk_score", 30.0),
-    ("exposure", "Exposure vs cash", "cash_exposure_score", 30.0),
-    ("timing", "Timing vs runway", "waiting_period_score", 20.0),
-    ("protection", "Upfront protection gap", "upfront_risk_score", 20.0),
+    ("customer", "Customer delay risk", "customer_risk_score", "customer"),
+    ("exposure", "Exposure vs cash", "cash_exposure_score", "cash_exposure"),
+    ("timing", "Timing vs runway", "waiting_period_score", "waiting_period"),
+    ("protection", "Upfront protection gap", "upfront_risk_score", "upfront"),
 )
 
 _MAX_RECOMMENDATIONS = 3
@@ -191,7 +191,10 @@ def _components(component_scores: dict) -> list:
             "points": _num(component_scores.get(source)) * weight / 100.0,
             "max_points": weight,
         }
-        for key, label, source, weight in _COMPONENT_WEIGHTS
+        for key, label, source, weight in (
+            (k, lab, src, engine.WEIGHTS[wk] * 100.0)
+            for k, lab, src, wk in _COMPONENT_WEIGHTS
+        )
     ]
 
 

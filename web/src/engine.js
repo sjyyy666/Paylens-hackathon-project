@@ -176,9 +176,37 @@
   // ---------------------------------------------------------- risk engine
   const LEVELS = ["LOW", "MODERATE", "HIGH", "CRITICAL"];
   const LEVEL_RANK = { LOW: 0, MODERATE: 1, HIGH: 2, CRITICAL: 3 };
-  const METHODOLOGY_VERSION = "prototype-heuristic-0.1";
-  const CONFIG = { w_customer: 20, w_exposure: 25, w_timing: 35, w_protection: 20,
-    exposure_scale: 2.5, timing_scale: 1.0, expected_delay_days: 30, materiality_full_at: 2.0 };
+  const METHODOLOGY_VERSION = "contract-engine-1.0";
+  // Mirrors src/contract_risk_engine.py WEIGHTS and src/contract_adapter.py.
+  // The customer term is held at 20%: the ML probability is the noisiest input,
+  // and the freed 10% goes to cash exposure, measured from entered numbers.
+  const CONFIG = { w_customer: 20, w_exposure: 40, w_timing: 20, w_protection: 20,
+    delivery_days: 30, expected_delay_days: 30, materiality_full_at: 2.0 };
+
+  // Piecewise-linear map of net-exposure-to-cash ratio onto 0-100.
+  // 0.5x -> 25, 1x -> 50, 2x -> 75, 3x+ -> 100.
+  function cashExposureScore(ratio) {
+    if (ratio === Infinity) return 100;
+    if (ratio <= 0) return 0;
+    if (ratio <= 0.5) return (ratio / 0.5) * 25;
+    if (ratio <= 1.0) return 25 + ((ratio - 0.5) / 0.5) * 25;
+    if (ratio <= 2.0) return 50 + (ratio - 1.0) * 25;
+    if (ratio <= 3.0) return 75 + (ratio - 2.0) * 25;
+    return 100;
+  }
+
+  // Banded on how much of the cash runway the wait consumes.
+  function waitingPeriodScore(waitMonths, runwayMonths) {
+    if (waitMonths <= 0) return 0;
+    if (runwayMonths === null || runwayMonths === Infinity) return 0;
+    if (runwayMonths <= 0) return 100;
+    const r = waitMonths / runwayMonths;
+    if (r <= 0.25) return 10;
+    if (r <= 0.50) return 30;
+    if (r <= 1.00) return 60;
+    if (r <= 1.50) return 80;
+    return 100;
+  }
 
   function levelForScore(score) {
     const s = pyRound(score);
@@ -186,7 +214,6 @@
   }
   function num(v, d = 0) { const n = Number(v); return v === null || v === undefined || v === "" || !isFinite(n) ? d : n; }
   function fraction(v) { let n = num(v); if (n > 1) n /= 100; return clamp(n, 0, 1); }
-  const saturate = (x, s) => (x === Infinity ? 1 : x <= 0 ? 0 : 1 - Math.exp(-x / s));
   const fmtRatioReason = (r) => (r >= 100 ? "more than 100×" : `${r.toFixed(1)}×`);
 
   function analyseContract(paymentProbability, contractValue, cashReserve, monthlyCost,
@@ -205,20 +232,29 @@
     const cashRunway = costs > 0 ? cash / costs : null;
     const effRunway = costs > 0 ? (cash + upfrontAmount) / costs : null;
     const termMonths = terms / 30;
-    const expectedDays = terms + p * config.expected_delay_days;
-    const monthsOut = expectedDays / 30;
+    const waitDays = config.delivery_days + terms;
+    const waitMonths = waitDays / 30;
+    // Displayed figure carries the delay the customer model expects on top of
+    // the engine's waiting period, matching the "incl. likely delay" caption.
+    const expectedDays = waitDays + p * config.expected_delay_days;
     let pressure;
-    if (net <= 0 || effRunway === null) pressure = 0;
-    else if (effRunway <= 0) pressure = Infinity;
-    else pressure = monthsOut / effRunway;
+    if (net <= 0 || cashRunway === null) pressure = 0;
+    else if (cashRunway <= 0) pressure = Infinity;
+    else pressure = waitMonths / cashRunway;
     const materiality = ratioCalc === Infinity ? 1 : Math.min(1, ratioCalc / config.materiality_full_at);
 
-    const cCustomer = config.w_customer * p * materiality;
-    const cExposure = config.w_exposure * saturate(ratioCalc, config.exposure_scale);
-    const cTiming = config.w_timing * saturate(pressure, config.timing_scale) * materiality;
-    const cProtection = config.w_protection * (1 - upfront) * materiality;
-    const raw = cCustomer + cExposure + cTiming + cProtection;
-    const score = pyRound(clamp(raw, 0, 100));
+    // Each sub-score is 0-100, then weighted into the headline score.
+    const sCustomer = p * 100;
+    const sExposure = cashExposureScore(ratioCalc);
+    const sTiming = waitingPeriodScore(waitMonths, cashRunway);
+    const sProtection = (1 - upfront) * 100;
+
+    const cCustomer = (config.w_customer * sCustomer) / 100;
+    const cExposure = (config.w_exposure * sExposure) / 100;
+    const cTiming = (config.w_timing * sTiming) / 100;
+    const cProtection = (config.w_protection * sProtection) / 100;
+    const raw = clamp(cCustomer + cExposure + cTiming + cProtection, 0, 100);
+    const score = pyRound(raw);
 
     const r = {
       score, score_raw: raw, level: levelForScore(score),

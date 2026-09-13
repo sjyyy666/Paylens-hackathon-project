@@ -396,13 +396,13 @@
       .map(([ic, t, b], i) => `<div class="pl-step"><div class="pl-step-icon">${icon(ic, 18)}</div><div class="pl-step-num">Step ${i + 1}</div><div class="pl-step-title">${t}</div><div class="pl-step-body">${b}</div></div>`).join("");
     const C = P.CONFIG;
     $("method").innerHTML = `<div class="pl-table-wrap"><table class="pl-table"><thead><tr><th>Component</th><th class="pl-num">Max points</th><th>What it measures</th></tr></thead><tbody>
-      ${[["Customer delay risk", C.w_customer, "Customer's payment-delay probability, scaled by how material the deal is to your cash."],
-         ["Exposure vs cash", C.w_exposure, "Net exposure (contract minus upfront) relative to your available cash."],
-         ["Timing vs runway", C.w_timing, "Payment terms plus likely delay, relative to how long your cash (plus any upfront payment) covers your costs."],
+      ${[["Customer delay risk", C.w_customer, "The customer's payment-delay probability, taken directly as a 0-100 risk."],
+         ["Exposure vs cash", C.w_exposure, "Net exposure (contract minus upfront) as a multiple of your available cash: 0.5x, 1x, 2x and 3x map to 25, 50, 75 and 100."],
+         ["Timing vs runway", C.w_timing, "Delivery time plus payment terms, as a share of how long your cash covers your operating costs."],
          ["Upfront protection gap", C.w_protection, "Share of the contract not paid upfront."]].map(([a, b, c]) => `<tr><td>${a}</td><td class="pl-num">${b}</td><td>${c}</td></tr>`).join("")}
       </tbody></table></div>
       <div class="pl-method-bands"><span>${badge("LOW", 1)} 0–30</span><span>${badge("MODERATE", 1)} 31–55</span><span>${badge("HIGH", 1)} 56–75</span><span>${badge("CRITICAL", 1)} 76–100</span></div>
-      <div class="pl-small">A transparent prototype heuristic, not a credit rating. Customer payment data and the delay model are demo stand-ins and will be replaced by real Payment Times data and a trained model.</div>`;
+      <div class="pl-small">Weights live in one place and are shared with the Python engine, not a credit rating. Customer payment data and the delay model are demo stand-ins and will be replaced by real Payment Times data and a trained model.</div>`;
   }
 
   // ------------------------------------------------------------ wiring
