@@ -1,8 +1,10 @@
 # PayLens
 
-> **Know the payment risk before you sign the deal.**
+> **Know whether your business can afford the deal before you sign it.**
+>
+> *Winning the contract shouldn't mean financing your customer.*
 
-PayLens is a pre-contract payment-risk analysis application designed to help small businesses understand whether they can financially support a proposed customer contract.
+PayLens is a pre-contract cash-flow stress-testing tool for Australian SMEs supplying larger organisations. It combines customer payment behaviour, the economics of the proposed contract, and the supplier's financial position to assess deal resilience and identify payment terms that could make the contract more sustainable.
 
 The application combines:
 

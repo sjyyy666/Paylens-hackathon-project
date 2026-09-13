@@ -1,6 +1,6 @@
 PayLens
 
-Know the payment risk before you sign the deal.
+Know whether your business can afford the deal before you sign it.
 
 PayLens helps a small business decide whether it can afford to take on a
 large B2B customer.

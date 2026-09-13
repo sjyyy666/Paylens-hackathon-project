@@ -1,5 +1,5 @@
 """
-PayLens — Know the payment risk before you sign the deal.
+PayLens — Know whether your business can afford the deal before you sign it.
 
 Run with:  streamlit run app.py
 
