@@ -1,3 +1,5 @@
+import importlib.util
+import json
 import unittest
 import tempfile
 from pathlib import Path
@@ -114,6 +116,28 @@ class MLProcessTests(unittest.TestCase):
             train_logistic_regression(training, artifact)
             pipeline = load(artifact)["model"]
         self.assertTrue(pipeline.named_steps["imputer"].add_indicator)
+
+
+class CanonicalFeatureSchemaTest(unittest.TestCase):
+    """The nine-feature schema is canonical; guard it against silent drift."""
+
+    def test_matches_the_shipped_model_metrics(self):
+        metrics = json.loads(Path("reports/model_metrics.json").read_text())
+        self.assertEqual(list(MODEL_FEATURES), metrics["features"])
+
+    def test_experimental_preprocess_schema_is_not_the_production_one(self):
+        """preprocess/build_training_data.py is an experiment, not the contract.
+
+        If someone ever makes the two lists agree, delete this test and the
+        experimental path rather than letting two schemas both look canonical.
+        """
+        spec = importlib.util.spec_from_file_location(
+            "_experimental_builder", "preprocess/build_training_data.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertNotEqual(list(MODEL_FEATURES), list(module.MODEL_FEATURES))
+        self.assertIn("estimated_avg_payment_time_days", module.MODEL_FEATURES)
+        self.assertNotIn("estimated_avg_payment_time_days", MODEL_FEATURES)
 
 
 if __name__ == "__main__":

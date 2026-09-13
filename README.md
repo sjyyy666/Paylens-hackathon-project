@@ -751,9 +751,9 @@ and imports the application risk functions through:
 from src.risk_engine import ...
 ```
 
-The separate `contract_risk_engine.py` and `contract_model.py` modules should be checked to ensure that they are fully connected to `src.services` and the Streamlit application.
+`src.contract_adapter` bridges the two: it calls `contract_risk_engine.assess_contract_risk` and falls back to `risk_engine.analyse_contract` only if that raises, so the deal panel always renders.
 
-In particular, the project should consistently use:
+The project consistently uses:
 
 ```python
 payment_delay_probability
@@ -767,12 +767,12 @@ P(high_payment_delay = 1)
 
 The application should not interpret this value as an on-time payment probability.
 
-Before the final demonstration, the team should verify:
+Verified:
 
-1. Which risk engine is called by `src.services`.
-2. Whether `contract_model.py` is used by the application.
-3. Whether the parameter name and probability meaning are consistent across all modules.
-4. Whether the displayed customer-risk score increases when the delay probability increases.
+1. **Which risk engine is called by `src.services`** — `contract_risk_engine.py`, via `src/contract_adapter.py`, with `risk_engine.analyse_contract` as the fallback.
+2. **Whether `contract_model.py` is used by the application** — no; it is a thin wrapper over the same contract engine, kept as a documented reference interface.
+3. **Whether the parameter name and probability meaning are consistent** — yes. The value is the delay probability at every layer and is never inverted. `contract_adapter.analyse_contract` keeps the historical parameter name `payment_probability` but documents and passes it through as the delay probability.
+4. **Whether displayed customer risk rises with delay probability** — yes, asserted in `tests/test_contract_adapter.py` and `tests/test_contract_risk_engine.py`.
 5. Whether the simulator recalculates the same engine used for the main deal analysis.
 
 ---
