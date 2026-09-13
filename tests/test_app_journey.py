@@ -1,9 +1,16 @@
 """
 End-to-end journey through app.py.
 
-Uses real Streamlit's AppTest when Streamlit is installed; otherwise uses the
-strict stub in tests/streamlit_stub.py. Both drive the same callbacks, widget
-state and rendering code paths.
+Two harnesses, and both always run: the strict stub in tests/streamlit_stub.py
+covers the full journey, and real Streamlit's AppTest covers the same path
+wherever Streamlit is installed. They drive the same callbacks, widget state and
+rendering code paths.
+
+The stub journey used to be skipped whenever real Streamlit was present, which
+meant the assertions it alone made -- the suggestion and Apply behaviour --
+never ran on a developer machine, and the suite went green over a broken
+button. The stub now restores itself (see streamlit_stub.uninstall), so neither
+harness excludes the other.
 """
 
 import re
@@ -24,11 +31,32 @@ def scores(text):
     return [int(x) for x in re.findall(r'pl-ccard-score"><span class="[^"]+">(\d+)', text)]
 
 
-@unittest.skipIf(HAVE_STREAMLIT, "stub journey runs only when Streamlit is absent")
 class StubJourney(unittest.TestCase):
+    """The full journey, including assertions no other test makes.
+
+    This used to be skipped whenever real Streamlit was installed, so on a
+    developer machine the suite went green without ever exercising the
+    suggestion/Apply behaviour asserted below. The stub now restores itself, so
+    it runs everywhere and real Streamlit survives it.
+    """
+
     def setUp(self):
-        from tests.streamlit_stub import install
+        from tests.streamlit_stub import install, uninstall
+
         self.st = install()
+        self.addCleanup(uninstall)
+
+        # The facade defaults to the real-data backend; the journey drives the
+        # demo companies, so pin it to the fixtures.
+        from src import mock_services, services
+
+        backend, is_mock = services._backend, services.IS_MOCK
+        services._backend, services.IS_MOCK = mock_services, True
+
+        def restore():
+            services._backend, services.IS_MOCK = backend, is_mock
+
+        self.addCleanup(restore)
 
     def go(self):
         return self.st.run(APP)
@@ -203,6 +231,20 @@ class RealStreamlitJourney(unittest.TestCase):  # pragma: no cover - runs where 
         self.assertTrue(at.session_state["deal_analysed"])
         at.slider(key="sim_upfront").set_value(30).run()
         self.assertFalse(at.exception)
+
+        # Apply suggestion, on the real harness too. This is the assertion the
+        # suite used to lack entirely: the stub journey covered it but was
+        # skipped wherever Streamlit was installed.
+        apply_button = next(b for b in at.button if b.key == "btn_apply")
+        self.assertFalse(apply_button.disabled)
+        apply_button.click().run()
+        self.assertFalse(at.exception)
+        applied = at.session_state["sim_upfront"]
+        self.assertGreater(applied, 30, "Apply must raise the upfront, never lower it")
+
+        # and it is spent: re-applying the same floor would change nothing
+        self.assertTrue(next(b for b in at.button if b.key == "btn_apply").disabled)
+
         at.button(key="btn_new").click().run()
         self.assertIsNone(at.session_state["selected_company_id"])
         self.assertFalse(at.exception)

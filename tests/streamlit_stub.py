@@ -398,18 +398,58 @@ class StubStreamlit(types.ModuleType):
 
 
 def install() -> StubStreamlit:
+    """Swap the stub in for ``streamlit`` and return it.
+
+    Call ``uninstall()`` afterwards -- always via ``addCleanup`` so it runs on
+    failure too. Without that restore the stub leaks into the rest of the
+    process, which is why these tests used to be skipped whenever real
+    Streamlit was installed, leaving the journey they assert unexercised.
+    """
     stub = StubStreamlit()
+    names = ["streamlit", *stub._modules]
+    _saved.append({n: sys.modules.get(n) for n in names})
+
     sys.modules["streamlit"] = stub
     for name, mod in stub._modules.items():
         sys.modules[name] = mod
     # compat caches signatures per process — clear so it inspects this stub
     try:
         from src.ui import compat
+        _saved[-1]["__compat_st__"] = compat.st
         compat._params.cache_clear()
         compat.st = stub
     except Exception:
         pass
     return stub
+
+
+_saved: list = []
+
+
+def uninstall() -> None:
+    """Undo the most recent ``install()``, restoring real Streamlit if present."""
+    if _saved:
+        saved = _saved.pop()
+        saved.pop("__compat_st__", None)
+        for name, mod in saved.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+
+    # Re-point compat at whatever ``streamlit`` now resolves to rather than at a
+    # value saved by install(). pytest can import this file twice (as
+    # ``tests.streamlit_stub`` and as ``streamlit_stub``), giving two _saved
+    # stacks whose install/uninstall pairs do not line up, which used to leave a
+    # dead stub in compat.st and break the real-Streamlit test that ran next.
+    try:
+        from src.ui import compat
+        compat._params.cache_clear()
+        current = sys.modules.get("streamlit")
+        if current is not None and not isinstance(current, StubStreamlit):
+            compat.st = current
+    except Exception:
+        pass
 
 
 # Approximation of Streamlit's own base styles (only used for previews).
