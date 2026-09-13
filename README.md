@@ -20,20 +20,28 @@ PayLens is designed to support better commercial decisions **before a contract i
 
 ## Try It
 
-| | |
-|---|---|
-| **Live demo** | https://windsorrr09-sys.github.io/ai-hackathon-2026/ |
-| **Source** | https://github.com/windsorrr09-sys/ai-hackathon-2026 |
+Two hosted deployments. Start with whichever suits you:
 
-No sign-in, no install, no Python — the live demo is the standalone web build and
-runs entirely in your browser. It is deployed from this repository by
-[GitHub Actions](.github/workflows/pages.yml) on every push to `main`, rebuilt
-from `web/src` and checked against the committed build, so the page you see can
-never drift from the source you can read.
+| | | |
+|---|---|---|
+| **Live demo** | https://windsorrr09-sys.github.io/ai-hackathon-2026/ | No sign-in |
+| **Full application** | https://ai-hackathon-2026-hzmxizxcs54vqy4xkgydpa.streamlit.app | Streamlit sign-in required |
+| **Source** | https://github.com/windsorrr09-sys/ai-hackathon-2026 | |
 
-The demo uses the demo dataset and a mock delay model; the Streamlit application
-in this repository runs the trained model against the full company history. Both
-score through the same contract engine, so exposure scores match.
+**Live demo** — no sign-in, no install, no Python; runs entirely in your browser.
+It uses the demo dataset and a mock delay model. It is deployed from this
+repository by [GitHub Actions](.github/workflows/pages.yml) on every push to
+`main`, rebuilt from `web/src` and checked against the committed build, so the
+page you see can never drift from the source you can read.
+
+**Full application** — the Streamlit app running the trained logistic-regression
+model against the full Payment Times company history (54,420 company-periods,
+real ABNs). Streamlit Community Cloud requires viewers to sign in with a free
+account; the app is not broken if you meet a sign-in page.
+
+Both score through the same contract engine, so exposure scores match. The About
+panel in either one names the data source and the model actually in use, so you
+can confirm which you are looking at.
 
 To run the demo build locally instead, open `web/index.html` in a browser, or
 rebuild it from source:
