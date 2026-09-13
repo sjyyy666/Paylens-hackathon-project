@@ -47,7 +47,11 @@ jobs:
           cp web/index.html _site/index.html
           cp assets/favicon.png _site/favicon.png
 
+      # enablement turns Pages on through the API (build_type=workflow) using the
+      # pages:write token above, so nobody has to flip the repo setting by hand.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
