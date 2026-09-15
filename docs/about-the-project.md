@@ -1,4 +1,6 @@
-# PayLens — Know the payment risk before you sign the deal
+# PayLens — Know whether your business can afford the deal before you sign it
+
+*Winning the contract shouldn't mean financing your customer.*
 
 ## Inspiration
 

@@ -103,15 +103,18 @@ MODEL_FEATURES = [
     "payment_term_gap",
 ]
 
-These are the currently locked feature names used by the ML process.
+This nine-feature schema is CANONICAL. It is defined once in
+src/ml_process.py (MODEL_FEATURES) and it is the schema the shipped model
+artifact was trained on, as recorded in reports/model_metrics.json.
 
-The following alternative eight-feature preprocessing schema exists in the
-repository but is not the current locked ML schema:
-
-ALTERNATIVE_FEATURE = "estimated_avg_payment_time_days"
-
-The team must resolve the remaining preprocessing divergence before
-treating the data contract as final.
+An earlier eight-feature experiment survives in
+preprocess/build_training_data.py, which substitutes
+estimated_avg_payment_time_days for pct_paid_within_term and
+payment_term_gap. That script and its output
+(preprocess/training_data.csv, .xlsx) are EXPERIMENTAL and are not part of
+the production path: nothing under src/ reads them, and the trained model
+would reject their column set. The production pipeline trains from
+preprocess/company_history.csv through src/ml_process.py.
 
 4. Features that must not enter the ML model
 
@@ -386,24 +389,25 @@ probability.
 
 12. Interface with the Contract Model
 
-The current Contract Model expects:
+The Contract Model consumes payment-delay probability directly. There is no
+inversion anywhere in the integration path.
 
-payment_probability
+The ML model returns:
 
-to mean the probability that the customer pays on time.
+payment_delay_probability = P(high_payment_delay = 1)
 
-Therefore, if the ML model returns:
+The contract engine names the same quantity payment_delay_probability, and the
+adapter in src/contract_adapter.py names its parameter payment_probability for
+historical reasons while documenting and passing it through as the delay
+probability. Higher values mean higher risk at every layer.
 
-payment_delay_probability
+Do NOT write payment_probability = 1 - payment_delay_probability. That
+inversion would make the worst-paying customers score as the safest.
 
-the integration layer must convert it:
-
-payment_probability = 1 - payment_delay_probability
-
-Then call the Contract Model:
+Call the Contract Model with the delay probability as-is:
 
 contract_result = contract_model.predict(
-    payment_probability=payment_probability,
+    payment_delay_probability=payment_delay_probability,
     contract_value=contract_value,
     cash_reserve=cash_reserve,
     monthly_cost=monthly_cost,
@@ -450,8 +454,6 @@ The adapter may return a documented historical-risk fallback:
 The fallback must not be presented as a trained model prediction.
 
 14. Pending decisions
-
-Resolve the eight-feature versus nine-feature preprocessing divergence
 
 Confirm the final processed input file
 

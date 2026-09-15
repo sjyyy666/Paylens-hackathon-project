@@ -1,6 +1,6 @@
 PayLens
 
-Know the payment risk before you sign the deal.
+Know whether your business can afford the deal before you sign it.
 
 PayLens helps a small business decide whether it can afford to take on a
 large B2B customer.
@@ -116,10 +116,12 @@ The Contract Model does not train an ML model.
 
 It receives:
 
-payment_probability
+payment_delay_probability
 
-where the value means the estimated probability that the customer pays on
-time.
+where the value means the estimated probability that the customer pays late,
+matching the ML output P(high_payment_delay = 1). The adapter parameter in
+src/contract_adapter.py is still spelled payment_probability, but it carries
+the delay probability and is documented as such.
 
 It also receives:
 
@@ -141,10 +143,10 @@ It returns:
     "recommendations": [],
 }
 
-If the ML layer produces payment-delay probability instead, the integration
-layer must convert it first:
-
-payment_probability = 1 - payment_delay_probability
+The ML layer produces payment-delay probability and the contract layer
+consumes it directly. Do not invert it with
+payment_probability = 1 - payment_delay_probability: that would make the
+worst-paying customers score as the safest.
 
 The two scores must be displayed separately in the UI.
 

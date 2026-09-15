@@ -17,6 +17,9 @@ from typing import Any
 
 import pandas as pd
 
+# CANONICAL feature schema. This nine-feature list is the single source of
+# truth for the production model; the eight-feature list in
+# preprocess/build_training_data.py is an experiment and is not used here.
 MODEL_FEATURES = [
     "pct_paid_30",
     "pct_paid_31_60",

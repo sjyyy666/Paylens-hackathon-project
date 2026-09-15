@@ -125,4 +125,27 @@ def _level_from_p(p: float) -> str:
 # contract_adapter (UI-shaped output). Re-exported so
 # the UI has a single import surface.
 analyse_contract = contract_adapter.analyse_contract
-find_min_upfront = risk_engine.find_min_upfront
+
+
+def _display_scorer(p, value, cash, cost, upfront_frac, terms):
+    """Score exactly as the UI displays, for the suggestion solver.
+
+    The solver must not use risk_engine's own heuristic: it scores 15-20 points
+    lower than the contract engine, so every suggestion promised MODERATE while
+    the UI showed HIGH.
+    """
+    return contract_adapter.analyse_contract(
+        payment_probability=p, contract_value=value, cash_reserve=cash,
+        monthly_cost=cost, upfront_pct=upfront_frac, payment_terms_days=terms)
+
+
+def find_min_upfront(*args, **kwargs):
+    """``risk_engine.find_min_upfront``, solved against the displayed engine."""
+    kwargs.setdefault("scorer", _display_scorer)
+    return risk_engine.find_min_upfront(*args, **kwargs)
+
+
+def suggest_structure(*args, **kwargs):
+    """``risk_engine.suggest_structure``, solved against the displayed engine."""
+    kwargs.setdefault("scorer", _display_scorer)
+    return risk_engine.suggest_structure(*args, **kwargs)

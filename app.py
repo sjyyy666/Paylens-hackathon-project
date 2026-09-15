@@ -1,5 +1,5 @@
 """
-PayLens — Know the payment risk before you sign the deal.
+PayLens — Know whether your business can afford the deal before you sign it.
 
 Run with:  streamlit run app.py
 
@@ -33,7 +33,7 @@ from src import services  # noqa: E402
 from src import state as S  # noqa: E402
 from src.formatting import fmt_currency, parse_amount  # noqa: E402
 from src.recommendations import build_recommendations  # noqa: E402
-from src.risk_engine import DEFAULT_CONFIG, METHODOLOGY_VERSION, suggest_structure  # noqa: E402
+from src.risk_engine import DEFAULT_CONFIG, METHODOLOGY_VERSION, suggestion_is_actionable  # noqa: E402
 from src.ui import compat  # noqa: E402
 from src.ui import components as C  # noqa: E402
 from src.ui.styles import stylesheet  # noqa: E402
@@ -264,8 +264,10 @@ def render_simulator(risk, company_name: str):
     revised_deal = S.revised_deal(ss) or dict(current_deal)
     revised = analyse(risk, revised_deal)
     p = risk["probability"] if risk else NEUTRAL_P
-    suggestion = suggest_structure(p, current_deal["contract_value"], current_deal["cash_reserve"],
-                                   current_deal["monthly_cost"], revised_deal["payment_terms_days"])
+    # Solved through services so it scores with the engine the UI displays.
+    suggestion = services.suggest_structure(
+        p, current_deal["contract_value"], current_deal["cash_reserve"],
+        current_deal["monthly_cost"], revised_deal["payment_terms_days"])
 
     md(C.simulator_intro())
     with compat.container("pl_sim"):
@@ -290,9 +292,8 @@ def render_simulator(risk, company_name: str):
             md(C.suggestion_box(suggestion))
         with s2:
             sug = suggestion.get("suggestion") if suggestion else None
-            can_apply = bool(sug) and suggestion.get("status") in ("upfront", "upfront_and_terms") and not (
-                sug["upfront_pct"] == revised_deal["upfront_pct"]
-                and sug["terms"] == revised_deal["payment_terms_days"])
+            can_apply = suggestion_is_actionable(suggestion, revised_deal["upfront_pct"],
+                                                 revised["level"])
             compat.button("Apply suggestion", key="btn_apply", type="primary", full_width=True,
                           disabled=not can_apply, on_click=cb_apply,
                           args=((sug or {}).get("upfront_pct", 0), (sug or {}).get("terms", 0)))

@@ -332,20 +332,22 @@ favours detecting risky cases over minimizing false alarms.
 
 The threshold should not be tuned on the test set.
 
-10. Preprocessing divergence
+10. Canonical feature schema
 
-The repository contains an older or alternative preprocessing path that
-uses an eight-feature schema and includes:
+There is one production feature schema: the nine-feature MODEL_FEATURES list
+in src/ml_process.py. It is what the shipped model artifact was trained on
+and what reports/model_metrics.json records.
 
-estimated_avg_payment_time_days
+An older eight-feature experiment remains in
+preprocess/build_training_data.py, which substitutes
+estimated_avg_payment_time_days for pct_paid_within_term and
+payment_term_gap. It and its training_data.csv / .xlsx outputs are labelled
+EXPERIMENTAL and are not on the production path: nothing under src/ reads
+them, and the trained model would reject their column set. The production
+pipeline reads preprocess/company_history.csv and derives the nine features
+in src/ml_process.py.
 
-instead of the currently locked nine-feature schema.
-
-The current ML contract and baseline results refer to the nine-feature
-schema. The team must resolve the preprocessing divergence before
-declaring the final training pipeline frozen.
-
-Do not silently mix the eight-feature and nine-feature schemas.
+Do not mix the two schemas.
 
 11. Leakage audit
 
@@ -419,13 +421,12 @@ Call src/model_service.py.
 
 Return the existing UI-compatible payment-risk output.
 
-Convert payment-delay probability into payment-on-time probability.
+Pass the payment-delay probability to src.contract_model.py unchanged.
 
-Pass that value to src.contract_model.py.
-
-The conversion is:
-
-payment_probability = 1 - payment_delay_probability
+There is no conversion. The contract layer consumes delay probability
+directly, so higher values mean higher risk end to end. Inverting it
+(1 - payment_delay_probability) would score the worst-paying customers as
+the safest.
 
 The Contract Model then receives the contract-specific inputs and produces
 a separate contract-risk result.

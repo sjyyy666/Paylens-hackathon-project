@@ -3,7 +3,7 @@ import math
 import unittest
 
 from src.risk_engine import (LEVEL_RANK, analyse_contract, find_min_upfront, level_for_score,
-                             suggest_structure)
+                             suggest_structure, suggestion_is_actionable)
 
 P = 0.756  # Demo Logistics Group mock probability
 BASE = dict(payment_probability=P, contract_value=120_000, cash_reserve=45_000,
@@ -161,6 +161,78 @@ class DemoStory(unittest.TestCase):
         self.assertEqual(suggest_structure(P, 120_000, 45_000, 25_000, 60)["status"], "upfront")
         self.assertEqual(suggest_structure(P, 1_000, 45_000, 25_000, 60)["status"], "already")
         self.assertEqual(suggest_structure(0.9, 5e6, 1_000, 5e6, 90)["status"], "not_reachable")
+
+
+class SuggestionIntegrityTest(unittest.TestCase):
+    """The four ways the suggestion used to contradict what the UI displayed."""
+
+    DEAL = (120_000, 45_000, 25_000)
+
+    def test_solver_and_display_engine_agree(self):
+        """A suggestion must promise the level the UI will actually show.
+
+        The solver used to score with risk_engine's heuristic while the UI
+        displayed the contract engine -- a 15-20 point gap, so every suggestion
+        promised MODERATE and the UI showed HIGH.
+        """
+        from src import services
+
+        for terms in (30, 45, 60, 90):
+            result = services.suggest_structure(0.30, *self.DEAL, terms)
+            sug = result["suggestion"]
+            if not sug:
+                continue
+            shown = services.analyse_contract(
+                payment_probability=0.30, contract_value=self.DEAL[0],
+                cash_reserve=self.DEAL[1], monthly_cost=self.DEAL[2],
+                upfront_pct=sug["upfront_pct"] / 100, payment_terms_days=sug["terms"])
+            self.assertEqual(sug["level"], shown["level"],
+                             f"terms={terms}: promised {sug['level']}, UI shows {shown['level']}")
+            self.assertEqual(sug["score"], shown["score"])
+
+    def test_never_applies_below_the_users_own_upfront(self):
+        """The suggestion is a floor, so Apply must not lower a safer position."""
+        from src import services
+
+        result = services.suggest_structure(0.30, *self.DEAL, 60)
+        floor = result["suggestion"]["upfront_pct"]
+        self.assertFalse(suggestion_is_actionable(result, floor + 10, "HIGH"),
+                         "applying would have reduced the user's upfront")
+        self.assertTrue(suggestion_is_actionable(result, 0, "CRITICAL"))
+
+    def test_not_actionable_once_the_target_is_reached(self):
+        result = suggest_structure(P, *self.DEAL, 60)
+        self.assertFalse(suggestion_is_actionable(result, 0, "MODERATE"))
+        self.assertFalse(suggestion_is_actionable(result, 0, "LOW"))
+
+    def test_echoed_terms_do_not_decide_actionability(self):
+        """``terms`` echoes the input, so it cannot gate the Apply action.
+
+        The old guard compared it and so collapsed to upfront-equality, killing
+        the button whenever the suggested % happened to match the current one.
+        """
+        result = suggest_structure(P, *self.DEAL, 60)
+        self.assertEqual(result["suggestion"]["terms"], 60)
+        self.assertTrue(suggestion_is_actionable(result, 0, "CRITICAL"))
+
+
+class DisplayedLevelTest(unittest.TestCase):
+    def test_level_matches_the_score_the_user_sees(self):
+        """The band must follow the rounded score, not the raw one.
+
+        55.33 displayed as "55" but was labelled HIGH, contradicting the
+        documented band (<=55 is MODERATE) and the web build.
+        """
+        from src import contract_risk_engine as engine
+
+        for pct in range(0, 101, 5):
+            for terms in (30, 45, 60, 90):
+                r = engine.assess_contract_risk(
+                    payment_delay_probability=0.30, contract_value=120_000,
+                    cash_reserve=45_000, monthly_cost=25_000, upfront_pct=pct / 100,
+                    delivery_time_days=30, payment_terms_days=terms)
+                self.assertEqual(r["risk_level"], level_for_score(r["risk_score"]),
+                                 f"upfront={pct}% terms={terms} score={r['risk_score']}")
 
 
 if __name__ == "__main__":

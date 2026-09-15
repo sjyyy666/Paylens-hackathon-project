@@ -1,5 +1,15 @@
 PayLens — Processing Pipeline
 
+> **Scope.** `build_training_data.py` produces `company_history.csv`, which
+> **is** the production input: `src/ml_process.py` reads it and derives the
+> canonical nine features itself.
+>
+> Its own `MODEL_FEATURES` list and the `training_data.csv` / `.xlsx` outputs
+> are **experimental** and are not the production feature schema. Nothing
+> under `src/` reads them. See `docs/ML_CONTRACT.md` for the canonical
+> nine-feature data contract.
+
+
 This folder contains the data-processing pipeline for PayLens.
 
 The pipeline converts the cleaned Australian Government Payment Times data into:
@@ -210,7 +220,17 @@ Final output paths.
 
 Initial ML Feature Schema
 
-The current initial model uses eight features:
+EXPERIMENTAL. The eight-feature schema below belongs to
+build_training_data.py, an earlier preprocessing experiment. It is NOT the
+production schema.
+
+The canonical schema is the nine-feature MODEL_FEATURES list in
+src/ml_process.py, which is what the shipped model artifact
+(models/payment_risk.joblib) was trained on. It replaces
+estimated_avg_payment_time_days with pct_paid_within_term and
+payment_term_gap. Nothing under src/ reads training_data.csv.
+
+The experimental eight features are:
 
 MODEL_FEATURES = [
     "pct_paid_30",
@@ -429,7 +449,7 @@ The calculation is designed not to use future reporting periods.
 
 Optional Analysis Features
 
-The processing script also calculates features that are useful for analysis or future modelling but are not part of the initial eight-feature model contract.
+The processing script also calculates features that are not part of this experimental eight-feature list. Note that two of them, pct_paid_within_term and payment_term_gap, ARE features in the canonical nine-feature production schema in src/ml_process.py.
 
 pct_paid_within_term
 
@@ -437,7 +457,8 @@ This estimates the percentage of invoices paid within the company’s standard p
 
 It is retained for analysis and history.
 
-It is not included in the current MODEL_FEATURES list.
+It is not in this script's experimental eight-feature list, but it IS a
+feature in the canonical production schema (src/ml_process.py).
 
 payment_term_gap
 
@@ -449,7 +470,7 @@ extra_standard_payment_terms
 
 It provides an estimate of how far observed payment behaviour differs from the stated standard payment term.
 
-It is currently an analysis-oriented feature rather than one of the eight initial model features.
+It is not in this script's experimental eight-feature list, but it IS a feature in the canonical production schema (src/ml_process.py).
 
 Target Construction
 

@@ -1,8 +1,10 @@
 # PayLens
 
-> **Know the payment risk before you sign the deal.**
+> **Know whether your business can afford the deal before you sign it.**
+>
+> *Winning the contract shouldn't mean financing your customer.*
 
-PayLens is a pre-contract payment-risk analysis application designed to help small businesses understand whether they can financially support a proposed customer contract.
+PayLens is a pre-contract cash-flow stress-testing tool for Australian SMEs supplying larger organisations. It combines customer payment behaviour, the economics of the proposed contract, and the supplier's financial position to assess deal resilience and identify payment terms that could make the contract more sustainable.
 
 The application combines:
 
@@ -37,15 +39,28 @@ My main contributions to the PayLens project included:
 
 ## Try It
 
-| | |
-|---|---|
-| **Live demo** | https://claude.ai/code/artifact/e88bcbaf-5e81-430d-aafe-81bbad16c9f6 |
-| **Source** | https://github.com/windsorrr09-sys/ai-hackathon-2026 |
+Two hosted deployments. Start with whichever suits you:
 
-The live demo is the standalone web build — no install, no Python, runs entirely
-in the browser. It uses the demo dataset and a mock delay model; the Streamlit
-application in this repository runs the trained model against the full company
-history. Both score through the same contract engine, so exposure scores match.
+| | | |
+|---|---|---|
+| **Live demo** | https://windsorrr09-sys.github.io/ai-hackathon-2026/ | No sign-in |
+| **Full application** | https://ai-hackathon-2026-hzmxizxcs54vqy4xkgydpa.streamlit.app | Streamlit sign-in required |
+| **Source** | https://github.com/windsorrr09-sys/ai-hackathon-2026 | |
+
+**Live demo** — no sign-in, no install, no Python; runs entirely in your browser.
+It uses the demo dataset and a mock delay model. It is deployed from this
+repository by [GitHub Actions](.github/workflows/pages.yml) on every push to
+`main`, rebuilt from `web/src` and checked against the committed build, so the
+page you see can never drift from the source you can read.
+
+**Full application** — the Streamlit app running the trained logistic-regression
+model against the full Payment Times company history (54,420 company-periods,
+real ABNs). Streamlit Community Cloud requires viewers to sign in with a free
+account; the app is not broken if you meet a sign-in page.
+
+Both score through the same contract engine, so exposure scores match. The About
+panel in either one names the data source and the model actually in use, so you
+can confirm which you are looking at.
 
 To run the demo build locally instead, open `web/index.html` in a browser, or
 rebuild it from source:
@@ -770,9 +785,9 @@ and imports the application risk functions through:
 from src.risk_engine import ...
 ```
 
-The separate `contract_risk_engine.py` and `contract_model.py` modules should be checked to ensure that they are fully connected to `src.services` and the Streamlit application.
+`src.contract_adapter` bridges the two: it calls `contract_risk_engine.assess_contract_risk` and falls back to `risk_engine.analyse_contract` only if that raises, so the deal panel always renders.
 
-In particular, the project should consistently use:
+The project consistently uses:
 
 ```python
 payment_delay_probability
@@ -786,12 +801,12 @@ P(high_payment_delay = 1)
 
 The application should not interpret this value as an on-time payment probability.
 
-Before the final demonstration, the team should verify:
+Verified:
 
-1. Which risk engine is called by `src.services`.
-2. Whether `contract_model.py` is used by the application.
-3. Whether the parameter name and probability meaning are consistent across all modules.
-4. Whether the displayed customer-risk score increases when the delay probability increases.
+1. **Which risk engine is called by `src.services`** — `contract_risk_engine.py`, via `src/contract_adapter.py`, with `risk_engine.analyse_contract` as the fallback.
+2. **Whether `contract_model.py` is used by the application** — no; it is a thin wrapper over the same contract engine, kept as a documented reference interface.
+3. **Whether the parameter name and probability meaning are consistent** — yes. The value is the delay probability at every layer and is never inverted. `contract_adapter.analyse_contract` keeps the historical parameter name `payment_probability` but documents and passes it through as the delay probability.
+4. **Whether displayed customer risk rises with delay probability** — yes, asserted in `tests/test_contract_adapter.py` and `tests/test_contract_risk_engine.py`.
 5. Whether the simulator recalculates the same engine used for the main deal analysis.
 
 ---

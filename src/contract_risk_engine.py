@@ -279,11 +279,17 @@ def calculate_contract_risk_score(
 
     risk_score = round(max(0.0, min(risk_score, 100.0)), 2)
 
-    if risk_score <= 30:
+    # Band on the score as DISPLAYED, not the raw value. The UI shows
+    # round(risk_score), so banding on the raw score let 55.33 display as "55"
+    # while being labelled HIGH -- contradicting the documented band (<=55 is
+    # MODERATE) and disagreeing with risk_engine.level_for_score and the web
+    # build, which both round first.
+    shown_score = int(round(risk_score))
+    if shown_score <= 30:
         risk_level = "LOW"
-    elif risk_score <= 55:
+    elif shown_score <= 55:
         risk_level = "MODERATE"
-    elif risk_score <= 75:
+    elif shown_score <= 75:
         risk_level = "HIGH"
     else:
         risk_level = "CRITICAL"

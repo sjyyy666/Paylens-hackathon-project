@@ -1,0 +1,59 @@
+# Publishes the standalone PayLens demo (web/) to GitHub Pages.
+#
+# The page is REBUILT from web/src here rather than trusting the committed
+# web/index.html, so the live site can never drift from source the way a
+# hand-published copy can.
+name: Deploy demo to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a newer push supersede an in-flight deploy, but never cancel a running
+# one midway: a half-finished deploy would leave the judges a broken page.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild the single-file demo from source
+        run: python3 tools/build_web.py
+
+      - name: Fail if the build differs from what is committed
+        run: |
+          if ! git diff --quiet -- web/index.html web/artifact.html; then
+            echo "::error::web/index.html is stale — run 'python3 tools/build_web.py' and commit the result."
+            git diff --stat -- web/index.html web/artifact.html
+            exit 1
+          fi
+
+      - name: Stage only the files the demo needs
+        run: |
+          mkdir -p _site
+          cp web/index.html _site/index.html
+          cp assets/favicon.png _site/favicon.png
+
+      # enablement turns Pages on through the API (build_type=workflow) using the
+      # pages:write token above, so nobody has to flip the repo setting by hand.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -6,10 +6,20 @@ Input:
     Sheet: historical_for_analysis
 
 Output:
-    preprocess/training_data.csv
-    preprocess/training_data.xlsx
-    preprocess/company_history.csv
+    preprocess/company_history.csv   <- PRODUCTION input for src/ml_process.py
     preprocess/company_history.xlsx
+    preprocess/training_data.csv     <- EXPERIMENTAL, not read by src/
+    preprocess/training_data.xlsx    <- EXPERIMENTAL, not read by src/
+
+Feature schema:
+    The MODEL_FEATURES list in this file is an EXPERIMENTAL eight-feature
+    schema. It is NOT the production schema.
+
+    The canonical schema is the nine-feature MODEL_FEATURES in
+    src/ml_process.py, which the shipped model artifact was trained on. It
+    replaces estimated_avg_payment_time_days with pct_paid_within_term and
+    payment_term_gap. src/ml_process.py derives those features from
+    company_history.csv directly and never reads training_data.csv.
 
 ML boundary:
     The model predicts NEXT-PERIOD PAYMENT-DELAY RISK.
@@ -52,9 +62,11 @@ HISTORY_XLSX = BASE_DIR / "company_history.xlsx"
 # 2. MODEL CONFIGURATION
 # ============================================================
 
-# Initial ML contract.
+# EXPERIMENTAL eight-feature schema -- NOT the production ML contract.
 #
-# Keep this clean and simple for the first model.
+# The canonical production schema is the nine-feature MODEL_FEATURES in
+# src/ml_process.py. This list is retained only to reproduce the earlier
+# training_data.csv experiment; changing it does not affect the shipped model.
 MODEL_FEATURES = [
     "pct_paid_30",
     "pct_paid_31_60",

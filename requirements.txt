@@ -1,7 +1,17 @@
-# PayLens prototype — the only runtime dependency is Streamlit.
+# PayLens prototype runtime.
+#
+# scikit-learn is PINNED, not floated. models/payment_risk.joblib is a pickled
+# Pipeline created with 1.7.2, and unpickling one across a scikit-learn version
+# boundary can fail. It would fail quietly: model_service.load_artifact returns
+# None, predict_payment_risk falls back to the historical heuristic, and that
+# fallback reports is_mock=False -- so a hosted deployment would serve judges a
+# heuristic while looking exactly like the trained model. Re-pin this only
+# together with a retrained artifact.
+scikit-learn==1.7.2
+joblib==1.5.2
+
 streamlit>=1.41,<2
-pandas>=2.0
-scikit-learn>=1.3
-joblib>=1.3
+pandas>=2.2,<3
+
 # Optional, for running the test suite:
 pytest>=8

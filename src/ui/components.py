@@ -14,6 +14,7 @@ import html as _html
 from typing import Optional
 
 from src.formatting import fmt_currency, fmt_months, fmt_pct, fmt_ratio
+from src.risk_engine import MAX_SUGGESTED_UPFRONT_PCT
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -488,8 +489,8 @@ def suggestion_box(s: Optional[dict]) -> str:
         return clean(f"""
         <div class="pl-suggest pl-suggest--muted">
           <div class="pl-suggest-label">{icon("info", 15)}Suggested minimum upfront payment</div>
-          <div class="pl-suggest-body">Upfront payment of up to 50% won't reach Moderate on its own.
-          Consider a smaller initial scope or staged billing.</div>
+          <div class="pl-suggest-body">Upfront payment of up to {MAX_SUGGESTED_UPFRONT_PCT}% won't reach
+          Moderate on its own. Consider a smaller initial scope or staged billing.</div>
         </div>""")
     sug = s["suggestion"]
     if s["status"] == "already":
